@@ -4,8 +4,7 @@ import base64
 import uuid
 import hashlib
 import aiohttp
-from azure.core import MatchConditions
-from azure.cosmos.exceptions import CosmosResourceNotFoundError, CosmosAccessConditionFailedError, CosmosResourceExistsError
+from azure.cosmos.exceptions import CosmosResourceNotFoundError, CosmosResourceExistsError
 from openai import APIConnectionError, RateLimitError, BadRequestError
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from src.redis_client import ensure_index
@@ -60,20 +59,22 @@ async def generate_embeddings(description: str) -> list:
     return embed_response.data[0].embedding
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
-async def save_to_cosmos(doc: StickerDocument, etag: str = None):
+async def ensure_cosmos_skeleton(sticker_id: str):
     container = await get_cosmos_stickers_container()
-    if etag:
-        await container.replace_item(
-            item=doc.id,
-            body=doc.model_dump(by_alias=True, exclude_none=True),
-            etag=etag,
-            match_condition=MatchConditions.IfNotModified
-        )
-    else:
-        try:
-            await container.create_item(doc.model_dump(by_alias=True, exclude_none=True))
-        except CosmosResourceExistsError:
-            pass # Someone else created it just now
+    doc = StickerDocument(id=sticker_id)
+    try:
+        await container.create_item(doc.model_dump(by_alias=True, exclude_none=True))
+    except CosmosResourceExistsError:
+        pass
+
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
+async def patch_cosmos_field(sticker_id: str, field_path: str, value):
+    container = await get_cosmos_stickers_container()
+    await container.patch_item(
+        item=sticker_id,
+        partition_key=sticker_id,
+        patch_operations=[{"op": "set", "path": field_path, "value": value}]
+    )
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
 async def save_user_sticker_mapping(user_id: str, sticker_id: str):
@@ -95,7 +96,7 @@ async def save_to_redis(user_id: str, sticker_id: str, packed_embedding: bytes):
 async def mark_redis_rejected(sticker_id: str):
     redis_client = await get_redis_client()
     key = f"rejected:{sticker_id}"
-    await redis_client.set(key, "1", ex=86400 * 7) # 1 week TTL Memory Leak fix
+    await redis_client.set(key, "1", ex=86400 * 7)
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(aiohttp.ClientError))
 async def send_text_message(user_id: str, text: str):
@@ -121,7 +122,6 @@ async def process_sticker(payload_dict: dict):
     redis_client = await get_redis_client()
     normalized_user = payload.user_id.replace('+', '')
     
-    # Global fast-path caching for rejected stickers
     if await redis_client.exists(f"rejected:{payload.sticker_id}"):
         await send_text_message(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
         return
@@ -132,17 +132,14 @@ async def process_sticker(payload_dict: dict):
     lock_key = f"lock:ingest:{payload.sticker_id}"
     lock_val = str(uuid.uuid4())
     if not await redis_client.set(lock_key, lock_val, nx=True, ex=300):
-        raise DistributedLockError("Global lock held, preserving queue visibility")
+        raise DistributedLockError("Global lock held")
     
     try:
+        await ensure_cosmos_skeleton(payload.sticker_id)
+        
         container = await get_cosmos_stickers_container()
-        etag = None
-        try:
-            existing = await container.read_item(item=payload.sticker_id, partition_key=payload.sticker_id)
-            doc = StickerDocument.model_validate(existing)
-            etag = existing.get('_etag')
-        except CosmosResourceNotFoundError:
-            doc = StickerDocument(id=payload.sticker_id)
+        existing = await container.read_item(item=payload.sticker_id, partition_key=payload.sticker_id)
+        doc = StickerDocument.model_validate(existing)
 
         if doc.description == "[REJECTED]":
             await send_text_message(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
@@ -163,38 +160,23 @@ async def process_sticker(payload_dict: dict):
                     return # VLM semantic permanent failure drop
                 
                 doc.description = description
-                try:
-                    await save_to_cosmos(doc, etag)
-                except CosmosAccessConditionFailedError:
-                    raise DistributedLockError("OCC failure. Bailing out to retry.") # Someone else updated it!
+                # Partial document update using Patch API to avoid full document contention
+                await patch_cosmos_field(payload.sticker_id, "/description", description)
                 
             if not doc.embedding:
-                # Re-fetch etag if we just saved it
-                if doc.description:
-                    try:
-                        existing = await container.read_item(item=payload.sticker_id, partition_key=payload.sticker_id)
-                        etag = existing.get('_etag')
-                    except CosmosResourceNotFoundError:
-                        pass
-                    
                 doc.embedding = await generate_embeddings(doc.description)
-                try:
-                    await save_to_cosmos(doc, etag)
-                except CosmosAccessConditionFailedError:
-                    raise DistributedLockError("OCC failure. Bailing out to retry.")
+                await patch_cosmos_field(payload.sticker_id, "/embedding", doc.embedding)
                 
         except BadRequestError:
             logging.error(f"Semantic API failure on sticker {payload.sticker_id}")
             doc.description = "[REJECTED]"
-            try:
-                await save_to_cosmos(doc, etag)
-            except CosmosAccessConditionFailedError:
-                pass # Doesn't matter if we failed to save tombstone, we will retry
+            await patch_cosmos_field(payload.sticker_id, "/description", "[REJECTED]")
             await send_text_message(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
             await mark_redis_rejected(payload.sticker_id)
             return
         except aiohttp.ClientError:
-            raise DistributedLockError("Network failure processing sticker") # Manual NACK to prevent PII trace
+            # Raise generic exception to utilize native retries without PII leakage
+            raise Exception("Network connection failed") from None
             
         await save_user_sticker_mapping(payload.user_id, payload.sticker_id)
         

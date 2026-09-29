@@ -6,14 +6,15 @@ from azure.cosmos.exceptions import CosmosResourceNotFoundError
 @pytest.mark.asyncio
 @patch("src.ingestion_worker.save_user_sticker_mapping")
 @patch("src.ingestion_worker.save_to_redis")
-@patch("src.ingestion_worker.save_to_cosmos")
+@patch("src.ingestion_worker.patch_cosmos_field")
+@patch("src.ingestion_worker.ensure_cosmos_skeleton")
 @patch("src.ingestion_worker.generate_embeddings")
 @patch("src.ingestion_worker.generate_description")
 @patch("src.ingestion_worker.download_media")
 @patch("src.ingestion_worker.ensure_index")
 @patch("src.ingestion_worker.get_redis_client")
 @patch("src.ingestion_worker.get_cosmos_stickers_container")
-async def test_process_sticker(mock_cosmos, mock_get_redis, mock_ensure, mock_download, mock_desc, mock_embed, mock_save_cosmos, mock_redis, mock_mapping):
+async def test_process_sticker(mock_cosmos, mock_get_redis, mock_ensure, mock_download, mock_desc, mock_embed, mock_skeleton, mock_patch, mock_redis, mock_mapping):
     mock_download.return_value = b"fake_image_data"
     mock_desc.return_value = "A funny dog meme."
     mock_embed.return_value = [0.1, 0.2, 0.3]
@@ -24,7 +25,8 @@ async def test_process_sticker(mock_cosmos, mock_get_redis, mock_ensure, mock_do
     mock_get_redis.return_value = mock_redis_client
     
     mock_container = AsyncMock()
-    mock_container.read_item.side_effect = CosmosResourceNotFoundError()
+    # Mock read_item returning a skeleton doc
+    mock_container.read_item.return_value = {"id": "sticker123"}
     mock_cosmos.return_value = mock_container
     
     payload = {
@@ -40,6 +42,6 @@ async def test_process_sticker(mock_cosmos, mock_get_redis, mock_ensure, mock_do
     mock_download.assert_called_once()
     mock_desc.assert_called_once()
     mock_embed.assert_called_once()
-    assert mock_save_cosmos.call_count == 2
+    assert mock_patch.call_count == 2
     mock_redis.assert_called_once()
     mock_mapping.assert_called_once()

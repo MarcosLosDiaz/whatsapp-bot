@@ -57,13 +57,11 @@ async def handle_query(payload_dict: dict):
     
     await ensure_index()
     
-    # Normalize phone numbers for RediSearch to avoid dialect-specific regex escaping failures
     normalized_user = payload.user_id.replace('+', '')
         
     try:
         query_embedding = await get_query_embedding(payload.query)
     except BadRequestError:
-        # Do not log Exception 'e' to prevent PII leakage of raw queries from OpenAI's error string
         logging.error(f"Semantic API failure on query for user {user_hash}")
         await send_text_message(payload.user_id, "I couldn't process your query due to a policy restriction.")
         return
@@ -80,8 +78,9 @@ async def handle_query(payload_dict: dict):
         if res.docs:
             sticker_val = res.docs[0].stickerId
             best_sticker_id = sticker_val.decode('utf-8') if isinstance(sticker_val, bytes) else sticker_val
-    except Exception as e:
-        logging.warning(f"RediSearch failed or index not created for user {user_hash}: {e}")
+    except Exception:
+        # Do NOT log 'e' here! The RediSearch exception string echoes the malformed query containing the unredacted phone number
+        logging.warning(f"RediSearch failed or index not created for user {user_hash}")
         
     if best_sticker_id:
         logging.info(f"Sending matched sticker to user {user_hash}.")
