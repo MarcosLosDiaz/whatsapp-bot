@@ -1,13 +1,14 @@
 import logging
 import struct
 import base64
+import uuid
 import aiohttp
 from azure.cosmos.exceptions import CosmosResourceNotFoundError
 from openai import APIConnectionError, RateLimitError, BadRequestError
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from src.redis_client import ensure_index
-from src.clients import get_aiohttp_session, get_openai_client, get_cosmos_container, get_redis_client
-from src.schemas import StickerQueuePayload, StickerDocument
+from src.clients import get_aiohttp_session, get_openai_client, get_cosmos_stickers_container, get_cosmos_user_stickers_container, get_redis_client
+from src.schemas import StickerQueuePayload, StickerDocument, UserStickerDocument
 from src.config import config
 
 class DistributedLockError(Exception):
@@ -55,8 +56,14 @@ async def generate_embeddings(description: str) -> list:
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
 async def save_to_cosmos(doc: StickerDocument):
-    container = await get_cosmos_container()
+    container = await get_cosmos_stickers_container()
     await container.upsert_item(doc.model_dump(by_alias=True, exclude_none=True))
+
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
+async def save_user_sticker_mapping(user_id: str, sticker_id: str):
+    container = await get_cosmos_user_stickers_container()
+    doc = UserStickerDocument(id=f"{user_id}_{sticker_id}", userId=user_id, stickerId=sticker_id)
+    await container.upsert_item(doc.model_dump(by_alias=True))
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
 async def save_to_redis(user_id: str, sticker_id: str, packed_embedding: bytes):
@@ -68,39 +75,48 @@ async def save_to_redis(user_id: str, sticker_id: str, packed_embedding: bytes):
     })
     await redis_client.delete(f"user_history:{user_id}")
 
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(aiohttp.ClientError))
+async def send_text_message(user_id: str, text: str):
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": user_id,
+        "type": "text",
+        "text": {"body": text}
+    }
+    url = f"https://graph.facebook.com/{config.META_GRAPH_VERSION}/{config.META_PHONE_ID}/messages"
+    headers = {"Authorization": f"Bearer {config.META_GRAPH_TOKEN}", "Content-Type": "application/json"}
+    session = await get_aiohttp_session()
+    async with session.post(url, headers=headers, json=payload) as resp:
+        resp.raise_for_status()
+
 async def process_sticker(payload_dict: dict):
     payload = StickerQueuePayload.model_validate(payload_dict)
-    logging.info(f"Processing sticker {payload.sticker_id} for user {payload.user_id}")
     
     await ensure_index()
-    
     redis_client = await get_redis_client()
     
     if await redis_client.exists(f"vector:{payload.user_id}:{payload.sticker_id}"):
-        logging.info("Sticker already exists in Redis, fast idempotency drop.")
         return
         
     lock_key = f"lock:ingest:{payload.user_id}:{payload.sticker_id}"
-    if not await redis_client.set(lock_key, "1", nx=True, ex=300):
-        logging.warning(f"Lock held for {payload.sticker_id}, likely concurrent webhook. NACKing to preserve visibility.")
+    lock_val = str(uuid.uuid4())
+    if not await redis_client.set(lock_key, lock_val, nx=True, ex=300):
         raise DistributedLockError("Lock held, preserving queue visibility")
     
     try:
-        container = await get_cosmos_container()
+        container = await get_cosmos_stickers_container()
         try:
-            existing = await container.read_item(item=payload.sticker_id, partition_key=payload.user_id)
+            existing = await container.read_item(item=payload.sticker_id, partition_key=payload.sticker_id)
             doc = StickerDocument.model_validate(existing)
-            logging.info("Recovered intermediate state from CosmosDB.")
         except CosmosResourceNotFoundError:
-            doc = StickerDocument(id=payload.sticker_id, userId=payload.user_id)
+            doc = StickerDocument(id=payload.sticker_id)
 
         try:
             if not doc.description:
-                logging.info("Downloading media and generating description...")
                 try:
                     media_bytes = await download_media(payload.media_id, config.META_GRAPH_TOKEN)
                 except ValueError as e:
-                    logging.error(f"Semantic failure downloading media: {e}")
                     return # Drop non-image payloads permanently
                 b64_image = base64.b64encode(media_bytes).decode('utf-8')
                 doc.description = await generate_description(b64_image)
@@ -109,17 +125,24 @@ async def process_sticker(payload_dict: dict):
                 await save_to_cosmos(doc)
                 
             if not doc.embedding:
-                logging.info("Generating vector embeddings...")
                 doc.embedding = await generate_embeddings(doc.description)
                 await save_to_cosmos(doc)
                 
         except BadRequestError as e:
-            logging.error(f"Semantic API failure on sticker {payload.sticker_id}: {e}")
+            await send_text_message(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
             return
             
-        logging.info("Saving embeddings to RediSearch...")
+        await save_user_sticker_mapping(payload.user_id, payload.sticker_id)
+        
         packed_embedding = struct.pack(f'<{len(doc.embedding)}f', *doc.embedding)
         await save_to_redis(payload.user_id, payload.sticker_id, packed_embedding)
-        logging.info("Sticker processing complete.")
     finally:
-        await redis_client.delete(lock_key)
+        script = """
+        if redis.call("get",KEYS[1]) == ARGV[1]
+        then
+            return redis.call("del",KEYS[1])
+        else
+            return 0
+        end
+        """
+        await redis_client.eval(script, 1, lock_key, lock_val)

@@ -49,27 +49,23 @@ async def main(req: func.HttpRequest) -> func.HttpResponse:
                 if not change.value.messages:
                     continue
                 for message in change.value.messages:
-                    if message.type == 'sticker' and message.sticker:
-                        try:
+                    try:
+                        if message.type == 'sticker' and message.sticker:
                             q_msg = StickerQueuePayload(
                                 user_id=message.from_,
                                 sticker_id=message.sticker.id,
                                 media_id=message.sticker.id
                             )
                             await send_to_queue("incoming-stickers", q_msg.model_dump_json())
-                        except Exception as e:
-                            logging.error(f"Queue error: {e}")
-                            return func.HttpResponse("Internal Server Error", status_code=500)
-                    elif message.type == 'text' and message.text:
-                        try:
+                        elif message.type == 'text' and message.text:
                             q_msg = QueryQueuePayload(
                                 user_id=message.from_,
                                 query=message.text.body
                             )
                             await send_to_queue("incoming-queries", q_msg.model_dump_json())
-                        except Exception as e:
-                            logging.error(f"Queue error: {e}")
-                            return func.HttpResponse("Internal Server Error", status_code=500)
+                    except Exception as e:
+                        # Log partial batch failures but continue processing others. Do not return 500 to prevent Meta retry storms.
+                        logging.error(f"Queue error for message from {hashlib.sha256(message.from_.encode('utf-8')).hexdigest()[:8]}: {e}")
         
         return func.HttpResponse("OK", status_code=200)
 

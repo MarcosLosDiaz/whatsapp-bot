@@ -1,5 +1,6 @@
 import logging
 import struct
+import hashlib
 import aiohttp
 from openai import APIConnectionError, RateLimitError, BadRequestError
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
@@ -45,9 +46,14 @@ async def get_query_embedding(query: str):
     )
     return embed_response.data[0].embedding
 
+def hash_pii(data: str) -> str:
+    return hashlib.sha256(data.encode('utf-8')).hexdigest()[:8]
+
 async def handle_query(payload_dict: dict):
     payload = QueryQueuePayload.model_validate(payload_dict)
-    logging.info(f"Handling query '{payload.query}' for user {payload.user_id}")
+    
+    user_hash = hash_pii(payload.user_id)
+    logging.info(f"Handling query [REDACTED] for user {user_hash}")
     
     await ensure_index()
     
@@ -57,9 +63,9 @@ async def handle_query(payload_dict: dict):
     try:
         query_embedding = await get_query_embedding(payload.query)
     except BadRequestError as e:
-        logging.error(f"Semantic API failure on query: {e}")
+        logging.error(f"Semantic API failure on query for user {user_hash}: {e}")
         await send_text_message(payload.user_id, "I couldn't process your query due to a policy restriction.")
-        return # Drop permanent failure
+        return
         
     packed_embedding = struct.pack(f'<{len(query_embedding)}f', *query_embedding)
     
@@ -74,11 +80,11 @@ async def handle_query(payload_dict: dict):
             sticker_val = res.docs[0].stickerId
             best_sticker_id = sticker_val.decode('utf-8') if isinstance(sticker_val, bytes) else sticker_val
     except Exception as e:
-        logging.warning(f"RediSearch failed or index not created: {e}")
+        logging.warning(f"RediSearch failed or index not created for user {user_hash}: {e}")
         
     if best_sticker_id:
-        logging.info(f"Sending matched sticker {best_sticker_id} to user.")
+        logging.info(f"Sending matched sticker to user {user_hash}.")
         await send_sticker(payload.user_id, best_sticker_id)
     else:
-        logging.info("No matching sticker found. Sending text fallback.")
+        logging.info(f"No matching sticker found. Sending text fallback to user {user_hash}.")
         await send_text_message(payload.user_id, "Sorry, I couldn't find a matching sticker for your query.")

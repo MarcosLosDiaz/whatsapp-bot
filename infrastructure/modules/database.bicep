@@ -1,4 +1,3 @@
-
 param location string
 param resourcePrefix string
 
@@ -26,12 +25,28 @@ resource database 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2023-04-15
   }
 }
 
-resource container 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+resource containerStickers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
   parent: database
   name: 'stickers'
   properties: {
     resource: {
       id: 'stickers'
+      partitionKey: {
+        paths: [
+          '/id'
+        ]
+        kind: 'Hash'
+      }
+    }
+  }
+}
+
+resource containerUserStickers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: database
+  name: 'user_stickers'
+  properties: {
+    resource: {
+      id: 'user_stickers'
       partitionKey: {
         paths: [
           '/userId'

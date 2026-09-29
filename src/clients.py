@@ -9,7 +9,8 @@ from src.config import config
 
 AIOHTTP_SESSION = None
 COSMOS_CLIENT = None
-COSMOS_CONTAINER = None
+COSMOS_STICKERS_CONTAINER = None
+COSMOS_USER_STICKERS_CONTAINER = None
 QUEUE_CLIENTS = {}
 REDIS_POOL = None
 OPENAI_CLIENT = None
@@ -54,17 +55,31 @@ async def get_openai_client() -> AsyncOpenAI:
                 OPENAI_CLIENT = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
     return OPENAI_CLIENT
 
-async def get_cosmos_container():
-    global COSMOS_CLIENT, COSMOS_CONTAINER, _cosmos_lock
+async def get_cosmos_stickers_container():
+    global COSMOS_CLIENT, COSMOS_STICKERS_CONTAINER, COSMOS_USER_STICKERS_CONTAINER, _cosmos_lock
     if _cosmos_lock is None:
         _cosmos_lock = asyncio.Lock()
-    if COSMOS_CONTAINER is None:
+    if COSMOS_STICKERS_CONTAINER is None:
         async with _cosmos_lock:
-            if COSMOS_CONTAINER is None:
+            if COSMOS_STICKERS_CONTAINER is None:
                 COSMOS_CLIENT = CosmosClient(config.COSMOS_DB_URL, credential=config.COSMOS_DB_KEY)
                 db = COSMOS_CLIENT.get_database_client(config.COSMOS_DB_DATABASE)
-                COSMOS_CONTAINER = db.get_container_client(config.COSMOS_DB_CONTAINER)
-    return COSMOS_CONTAINER
+                COSMOS_STICKERS_CONTAINER = db.get_container_client("stickers")
+                COSMOS_USER_STICKERS_CONTAINER = db.get_container_client("user_stickers")
+    return COSMOS_STICKERS_CONTAINER
+
+async def get_cosmos_user_stickers_container():
+    global COSMOS_CLIENT, COSMOS_STICKERS_CONTAINER, COSMOS_USER_STICKERS_CONTAINER, _cosmos_lock
+    if _cosmos_lock is None:
+        _cosmos_lock = asyncio.Lock()
+    if COSMOS_USER_STICKERS_CONTAINER is None:
+        async with _cosmos_lock:
+            if COSMOS_USER_STICKERS_CONTAINER is None:
+                COSMOS_CLIENT = CosmosClient(config.COSMOS_DB_URL, credential=config.COSMOS_DB_KEY)
+                db = COSMOS_CLIENT.get_database_client(config.COSMOS_DB_DATABASE)
+                COSMOS_STICKERS_CONTAINER = db.get_container_client("stickers")
+                COSMOS_USER_STICKERS_CONTAINER = db.get_container_client("user_stickers")
+    return COSMOS_USER_STICKERS_CONTAINER
 
 async def get_redis_client() -> redis.Redis:
     global REDIS_POOL, _redis_lock
@@ -78,6 +93,3 @@ async def get_redis_client() -> redis.Redis:
                     redis_url = f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}"
                 REDIS_POOL = redis.ConnectionPool.from_url(redis_url, max_connections=config.REDIS_MAX_CONNECTIONS)
     return redis.Redis(connection_pool=REDIS_POOL)
-
-# As requested by the reviewer, we strictly avoid atexit teardowns that cause asyncio loop conflicts.
-# The serverless platform natively cleans up stateless workers via process exit.
