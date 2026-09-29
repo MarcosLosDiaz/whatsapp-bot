@@ -18,7 +18,7 @@ async def test_handle_query(mock_ensure, mock_get_embed, mock_get_redis, mock_se
     mock_redis.ft.return_value = mock_ft
     mock_res = MagicMock()
     mock_doc = MagicMock()
-    mock_doc.stickerId = "sticker123"
+    mock_doc.stickerId = b"sticker123"
     mock_res.docs = [mock_doc]
     
     mock_search = AsyncMock()

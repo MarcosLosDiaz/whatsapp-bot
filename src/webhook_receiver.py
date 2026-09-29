@@ -40,8 +40,9 @@ async def main(req: func.HttpRequest) -> func.HttpResponse:
         try:
             req_body = req.get_json()
             payload = MetaWebhookPayload.model_validate(req_body)
-        except Exception as e:
-            logging.error(f"Invalid Payload: {e}")
+        except Exception:
+            # Do not log 'e' to prevent Pydantic ValidationError from dumping raw JSON payloads/PII
+            logging.error(f"Invalid Payload received")
             return func.HttpResponse("OK", status_code=200)
             
         for entry in payload.entry:
@@ -64,7 +65,6 @@ async def main(req: func.HttpRequest) -> func.HttpResponse:
                             )
                             await send_to_queue("incoming-queries", q_msg.model_dump_json())
                     except Exception as e:
-                        # Log partial batch failures but continue processing others. Do not return 500 to prevent Meta retry storms.
                         logging.error(f"Queue error for message from {hashlib.sha256(message.from_.encode('utf-8')).hexdigest()[:8]}: {e}")
         
         return func.HttpResponse("OK", status_code=200)

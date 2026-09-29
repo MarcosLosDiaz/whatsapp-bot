@@ -2,6 +2,7 @@ import logging
 import struct
 import base64
 import uuid
+import hashlib
 import aiohttp
 from azure.cosmos.exceptions import CosmosResourceNotFoundError
 from openai import APIConnectionError, RateLimitError, BadRequestError
@@ -13,6 +14,9 @@ from src.config import config
 
 class DistributedLockError(Exception):
     pass
+
+def hash_pii(data: str) -> str:
+    return hashlib.sha256(data.encode('utf-8')).hexdigest()[:8]
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(aiohttp.ClientError))
 async def download_media(media_id: str, token: str) -> bytes:
@@ -68,10 +72,12 @@ async def save_user_sticker_mapping(user_id: str, sticker_id: str):
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
 async def save_to_redis(user_id: str, sticker_id: str, packed_embedding: bytes):
     redis_client = await get_redis_client()
-    await redis_client.hset(f"vector:{user_id}:{sticker_id}", mapping={
+    # Normalize phone numbers for RediSearch to avoid regex escaping dialect issues
+    normalized_user = user_id.replace('+', '')
+    await redis_client.hset(f"vector:{normalized_user}:{sticker_id}", mapping={
         b"vector": packed_embedding,
         b"stickerId": sticker_id.encode('utf-8'),
-        b"userId": user_id.encode('utf-8')
+        b"userId": normalized_user.encode('utf-8')
     })
     await redis_client.delete(f"user_history:{user_id}")
 
@@ -92,17 +98,22 @@ async def send_text_message(user_id: str, text: str):
 
 async def process_sticker(payload_dict: dict):
     payload = StickerQueuePayload.model_validate(payload_dict)
+    user_hash = hash_pii(payload.user_id)
+    logging.info(f"Processing sticker {payload.sticker_id} for user {user_hash}")
     
     await ensure_index()
     redis_client = await get_redis_client()
+    normalized_user = payload.user_id.replace('+', '')
     
-    if await redis_client.exists(f"vector:{payload.user_id}:{payload.sticker_id}"):
+    # Fast user-specific idempotency drop
+    if await redis_client.exists(f"vector:{normalized_user}:{payload.sticker_id}"):
         return
         
-    lock_key = f"lock:ingest:{payload.user_id}:{payload.sticker_id}"
+    # GLOBAL distributed lock. Serializes processing across ALL users for this sticker.
+    lock_key = f"lock:ingest:{payload.sticker_id}"
     lock_val = str(uuid.uuid4())
     if not await redis_client.set(lock_key, lock_val, nx=True, ex=300):
-        raise DistributedLockError("Lock held, preserving queue visibility")
+        raise DistributedLockError("Global lock held, preserving queue visibility")
     
     try:
         container = await get_cosmos_stickers_container()
@@ -112,23 +123,36 @@ async def process_sticker(payload_dict: dict):
         except CosmosResourceNotFoundError:
             doc = StickerDocument(id=payload.sticker_id)
 
+        if doc.description == "[REJECTED]":
+            # Amnesic edge-case fixed: Read the tombstone so we don't re-download bad memes
+            await send_text_message(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
+            return
+
         try:
-            if not doc.description:
+            if not doc.description or not doc.embedding:
                 try:
                     media_bytes = await download_media(payload.media_id, config.META_GRAPH_TOKEN)
-                except ValueError as e:
+                except ValueError:
                     return # Drop non-image payloads permanently
+                
                 b64_image = base64.b64encode(media_bytes).decode('utf-8')
-                doc.description = await generate_description(b64_image)
-                if not doc.description:
-                    raise ValueError("VLM returned empty description.")
+                
+                # Single final upsert aggregating both APIs to avoid race conditions on partial docs
+                description = await generate_description(b64_image)
+                if not description:
+                    return # VLM semantic permanent failure drop
+                    
+                embedding = await generate_embeddings(description)
+                
+                doc.description = description
+                doc.embedding = embedding
                 await save_to_cosmos(doc)
                 
-            if not doc.embedding:
-                doc.embedding = await generate_embeddings(doc.description)
-                await save_to_cosmos(doc)
-                
-        except BadRequestError as e:
+        except BadRequestError:
+            # Drop PII. Do not log 'e'. Write a tombstone to Cosmos to stop retry loops.
+            logging.error(f"Semantic API failure on sticker {payload.sticker_id}")
+            doc.description = "[REJECTED]"
+            await save_to_cosmos(doc)
             await send_text_message(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
             return
             

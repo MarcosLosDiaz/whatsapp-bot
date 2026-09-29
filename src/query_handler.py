@@ -57,13 +57,14 @@ async def handle_query(payload_dict: dict):
     
     await ensure_index()
     
-    import re
-    safe_user_id = re.sub(r'([+\-!@#$%^&*()_={}\[\]|\\:;"\'<>,.?/])', r'\\\1', payload.user_id)
+    # Normalize phone numbers for RediSearch to avoid dialect-specific regex escaping failures
+    normalized_user = payload.user_id.replace('+', '')
         
     try:
         query_embedding = await get_query_embedding(payload.query)
-    except BadRequestError as e:
-        logging.error(f"Semantic API failure on query for user {user_hash}: {e}")
+    except BadRequestError:
+        # Do not log Exception 'e' to prevent PII leakage of raw queries from OpenAI's error string
+        logging.error(f"Semantic API failure on query for user {user_hash}")
         await send_text_message(payload.user_id, "I couldn't process your query due to a policy restriction.")
         return
         
@@ -74,7 +75,7 @@ async def handle_query(payload_dict: dict):
     best_sticker_id = None
     try:
         from redis.commands.search.query import Query
-        q = Query(f'(@userId:{{{safe_user_id}}})=>[KNN 1 @vector $vec as score]').sort_by('score').return_fields('stickerId').dialect(2)
+        q = Query(f'(@userId:{{{normalized_user}}})=>[KNN 1 @vector $vec as score]').sort_by('score').return_fields('stickerId').dialect(2)
         res = await redis_client.ft('idx:stickers').search(q, query_params={'vec': packed_embedding})
         if res.docs:
             sticker_val = res.docs[0].stickerId
