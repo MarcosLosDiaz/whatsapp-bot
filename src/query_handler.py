@@ -1,4 +1,3 @@
-import os
 import logging
 import struct
 import aiohttp
@@ -7,14 +6,12 @@ from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_excep
 from src.redis_client import ensure_index
 from src.clients import get_aiohttp_session, get_openai_client, get_redis_client
 from src.schemas import QueryQueuePayload
+from src.config import config
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(aiohttp.ClientError))
 async def send_message_payload(payload: dict):
-    phone_id = os.environ['META_PHONE_ID']
-    token = os.environ['META_GRAPH_TOKEN']
-    api_version = os.environ.get('META_GRAPH_VERSION', 'v18.0')
-    url = f"https://graph.facebook.com/{api_version}/{phone_id}/messages"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    url = f"https://graph.facebook.com/{config.META_GRAPH_VERSION}/{config.META_PHONE_ID}/messages"
+    headers = {"Authorization": f"Bearer {config.META_GRAPH_TOKEN}", "Content-Type": "application/json"}
     session = await get_aiohttp_session()
     async with session.post(url, headers=headers, json=payload) as resp:
         resp.raise_for_status()
@@ -42,9 +39,8 @@ async def send_text_message(user_id: str, text: str):
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type((APIError, APIConnectionError, RateLimitError)))
 async def get_query_embedding(query: str):
     client = await get_openai_client()
-    model = os.environ.get('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small')
     embed_response = await client.embeddings.create(
-        model=model,
+        model=config.OPENAI_EMBEDDING_MODEL,
         input=query
     )
     return embed_response.data[0].embedding

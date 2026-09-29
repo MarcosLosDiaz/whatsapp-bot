@@ -11,6 +11,12 @@ class StickerQueuePayload(QueueMessagePayload):
 class QueryQueuePayload(QueueMessagePayload):
     query: str = Field(..., description="The search query for the sticker")
 
+class StickerDocument(BaseModel):
+    id: str = Field(..., description="The sticker ID (Cosmos DB id)")
+    userId: str = Field(..., description="The user's phone number (Cosmos DB partition key)")
+    description: str = Field(..., description="The VLM generated description")
+    embedding: List[float] = Field(..., description="The vector embedding")
+
 # Webhook Payloads
 class MetaText(BaseModel):
     body: str

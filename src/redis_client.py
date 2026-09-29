@@ -1,7 +1,7 @@
-import os
 import logging
 import asyncio
 from src.clients import get_redis_client
+from src.config import config
 
 INDEX_CREATED = False
 _index_lock = None
@@ -23,18 +23,15 @@ async def ensure_index():
             from redis.commands.search.field import VectorField, TagField
             from redis.commands.search.indexDefinition import IndexDefinition, IndexType
             
-            dim = int(os.environ.get('REDIS_VECTOR_DIMENSIONS', '1536'))
             schema = (
                 TagField("userId"),
                 TagField("stickerId"),
-                VectorField("vector", "FLAT", {"TYPE": "FLOAT32", "DIM": dim, "DISTANCE_METRIC": "COSINE"})
+                VectorField("vector", "FLAT", {"TYPE": "FLOAT32", "DIM": config.REDIS_VECTOR_DIMENSIONS, "DISTANCE_METRIC": "COSINE"})
             )
             definition = IndexDefinition(prefix=["vector:"], index_type=IndexType.HASH)
             
             try:
-                # Check if index exists and valid
                 info = await client.ft('idx:stickers').info()
-                # Basic validation that it's a vector index (in production you'd deeply diff the schema)
                 if 'index_definition' not in info:
                     raise ValueError("Index exists but schema invalid")
                 INDEX_CREATED = True
