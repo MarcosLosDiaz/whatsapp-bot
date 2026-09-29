@@ -3,24 +3,16 @@ import logging
 import requests
 import struct
 from openai import OpenAI
-import redis
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
+from src.redis_client import get_redis_client, ensure_index
 
 OPENAI_CLIENT = None
-REDIS_CLIENT = None
 
 def get_openai_client():
     global OPENAI_CLIENT
     if not OPENAI_CLIENT:
         OPENAI_CLIENT = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
     return OPENAI_CLIENT
-
-def get_redis_client():
-    global REDIS_CLIENT
-    if not REDIS_CLIENT:
-        # Avoid decode_responses=True because we deal with raw vector bytes
-        REDIS_CLIENT = redis.Redis.from_url(f"redis://{os.environ['REDIS_HOST']}:{os.environ['REDIS_PORT']}")
-    return REDIS_CLIENT
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type((requests.exceptions.ConnectionError, requests.exceptions.HTTPError)))
 def send_sticker(user_id: str, sticker_id: str, token: str, phone_number_id: str):
@@ -42,8 +34,11 @@ def handle_query(payload: dict):
     user_id = payload['user_id']
     query = payload['query']
     
-    # Strip '+' to avoid RediSearch syntax errors
-    safe_user_id = user_id.replace('+', '')
+    ensure_index()
+    
+    import re
+    # Proper escaping for RediSearch
+    safe_user_id = re.sub(r'([+\-!@#$%^&*()_={}\[\]|\\:;"\'<>,.?/])', r'\\\1', user_id)
     
     phone_id = os.environ.get('META_PHONE_ID')
     token = os.environ.get('META_GRAPH_TOKEN')

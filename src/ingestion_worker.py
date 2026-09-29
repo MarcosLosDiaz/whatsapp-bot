@@ -5,12 +5,11 @@ import struct
 import base64
 from openai import OpenAI
 from azure.cosmos import CosmosClient
-import redis
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
+from src.redis_client import get_redis_client, ensure_index
 
 OPENAI_CLIENT = None
 COSMOS_CONTAINER = None
-REDIS_CLIENT = None
 
 def get_openai_client():
     global OPENAI_CLIENT
@@ -25,12 +24,6 @@ def get_cosmos_container():
         COSMOS_CONTAINER = client.get_database_client('WhatsAppBot').get_container_client('stickers')
     return COSMOS_CONTAINER
 
-def get_redis_client():
-    global REDIS_CLIENT
-    if not REDIS_CLIENT:
-        REDIS_CLIENT = redis.Redis.from_url(f"redis://{os.environ['REDIS_HOST']}:{os.environ['REDIS_PORT']}")
-    return REDIS_CLIENT
-
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type((requests.exceptions.ConnectionError, requests.exceptions.HTTPError)))
 def download_media(media_id: str, token: str) -> bytes:
     headers = {"Authorization": f"Bearer {token}"}
@@ -40,6 +33,12 @@ def download_media(media_id: str, token: str) -> bytes:
     
     media_resp = requests.get(media_url, headers=headers)
     media_resp.raise_for_status()
+    
+    # Validation: Ensure it's an image
+    content_type = media_resp.headers.get('Content-Type', '')
+    if not content_type.startswith('image/'):
+        raise ValueError(f"Invalid media type: {content_type}")
+        
     return media_resp.content
 
 def process_sticker(payload: dict):
@@ -47,8 +46,11 @@ def process_sticker(payload: dict):
     sticker_id = payload['sticker_id']
     media_id = payload['media_id']
     
-    # Strip '+' from user_id for RediSearch safety
-    safe_user_id = user_id.replace('+', '')
+    ensure_index()
+    
+    # Proper escaping
+    import re
+    safe_user_id = re.sub(r'([+\-!@#$%^&*()_={}\[\]|\\:;"\'<>,.?/])', r'\\\1', user_id)
     
     token = os.environ.get('META_GRAPH_TOKEN')
     if not token:
@@ -80,7 +82,7 @@ def process_sticker(payload: dict):
     container = get_cosmos_container()
     doc = {
         "id": sticker_id,
-        "userId": safe_user_id,
+        "userId": user_id,
         "description": description,
         "embedding": embedding
     }
@@ -89,9 +91,9 @@ def process_sticker(payload: dict):
     packed_embedding = struct.pack(f'<{len(embedding)}f', *embedding)
     
     redis_client = get_redis_client()
-    redis_client.hset(f"vector:{safe_user_id}:{sticker_id}", mapping={
+    redis_client.hset(f"vector:{user_id}:{sticker_id}", mapping={
         b"vector": packed_embedding,
         b"stickerId": sticker_id.encode('utf-8'),
-        b"userId": safe_user_id.encode('utf-8')
+        b"userId": user_id.encode('utf-8')
     })
-    redis_client.delete(f"user_history:{safe_user_id}")
+    redis_client.delete(f"user_history:{user_id}")

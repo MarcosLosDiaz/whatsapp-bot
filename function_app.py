@@ -21,52 +21,27 @@ def webhook(req: func.HttpRequest, msg_stickers: func.Out[str], msg_queries: fun
 @app.queue_trigger(arg_name="msg", queue_name="incoming-stickers", connection="AzureWebJobsStorage")
 def process_incoming_sticker(msg: func.QueueMessage) -> None:
     body = msg.get_body().decode('utf-8')
+    if not body:
+        return
     try:
         payload = json.loads(body)
-        messages = payload.get('entry', [{}])[0].get('changes', [{}])[0].get('value', {}).get('messages', [])
-        if not messages:
-            logging.warning("No messages found in sticker payload.")
+        if not payload:
             return
-            
-        message = messages[0]
-        user_id = message.get('from')
-        sticker_id = message.get('sticker', {}).get('id')
-        
-        if not user_id or not sticker_id:
-            logging.warning("Missing user_id or sticker_id in payload.")
-            return
-            
-        ingestion_worker.process_sticker({
-            "user_id": user_id,
-            "sticker_id": sticker_id,
-            "media_id": sticker_id
-        })
+        ingestion_worker.process_sticker(payload)
     except Exception as e:
         logging.exception(f"Error processing sticker msg: {e}")
-        raise # Re-raise to DLQ
+        raise
 
 @app.queue_trigger(arg_name="msg", queue_name="incoming-queries", connection="AzureWebJobsStorage")
 def process_incoming_query(msg: func.QueueMessage) -> None:
     body = msg.get_body().decode('utf-8')
+    if not body:
+        return
     try:
         payload = json.loads(body)
-        messages = payload.get('entry', [{}])[0].get('changes', [{}])[0].get('value', {}).get('messages', [])
-        if not messages:
-            logging.warning("No messages found in query payload.")
+        if not payload:
             return
-            
-        message = messages[0]
-        user_id = message.get('from')
-        query = message.get('text', {}).get('body')
-        
-        if not user_id or not query:
-            logging.warning("Missing user_id or query text in payload.")
-            return
-            
-        query_handler.handle_query({
-            "user_id": user_id,
-            "query": query
-        })
+        query_handler.handle_query(payload)
     except Exception as e:
         logging.exception(f"Error processing query msg: {e}")
-        raise # Re-raise to DLQ
+        raise

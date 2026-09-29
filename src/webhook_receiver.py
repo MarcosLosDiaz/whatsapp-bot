@@ -17,6 +17,10 @@ def verify_signature(payload: bytes, signature_header: str, app_secret: str) -> 
     return hmac.compare_digest(expected_signature, signature)
 
 def main(req: func.HttpRequest, msg_stickers: func.Out[str], msg_queries: func.Out[str]) -> func.HttpResponse:
+    # Initialize output bindings to avoid runtime errors
+    msg_stickers.set("")
+    msg_queries.set("")
+    
     if req.method == 'GET':
         mode = req.params.get('hub.mode')
         token = req.params.get('hub.verify_token')
@@ -64,11 +68,26 @@ def main(req: func.HttpRequest, msg_stickers: func.Out[str], msg_queries: func.O
                 
             message = messages[0]
             msg_type = message.get('type')
+            user_id = message.get('from')
+            
+            if not user_id:
+                return func.HttpResponse("OK", status_code=200)
             
             if msg_type == 'sticker':
-                msg_stickers.set(json.dumps(req_body))
+                sticker_id = message.get('sticker', {}).get('id')
+                if sticker_id:
+                    msg_stickers.set(json.dumps({
+                        "user_id": user_id,
+                        "sticker_id": sticker_id,
+                        "media_id": sticker_id
+                    }))
             elif msg_type == 'text':
-                msg_queries.set(json.dumps(req_body))
+                query = message.get('text', {}).get('body')
+                if query:
+                    msg_queries.set(json.dumps({
+                        "user_id": user_id,
+                        "query": query
+                    }))
                 
         except Exception:
             logging.exception("Unexpected error parsing message")
