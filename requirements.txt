@@ -1,0 +1,9 @@
+azure-functions
+azure-cosmos
+redis
+openai
+azure-monitor-opentelemetry
+tenacity
+pytest
+pytest-asyncio
+pytest-mock
