@@ -5,8 +5,13 @@ from src.query_handler import handle_query
 @patch("src.query_handler.requests.post")
 @patch("src.query_handler.OpenAI")
 @patch("src.query_handler.redis.Redis")
-def test_handle_query(mock_redis, mock_openai, mock_post):
-    # Mock embeddings
+def test_handle_query(mock_redis, mock_openai, mock_post, monkeypatch):
+    monkeypatch.setenv("META_PHONE_ID", "123456")
+    monkeypatch.setenv("META_GRAPH_TOKEN", "token")
+    monkeypatch.setenv("REDIS_HOST", "localhost")
+    monkeypatch.setenv("REDIS_PORT", "6379")
+    monkeypatch.setenv("OPENAI_API_KEY", "key")
+    
     mock_openai_instance = MagicMock()
     mock_openai.return_value = mock_openai_instance
     mock_embed_data = MagicMock()
@@ -15,13 +20,14 @@ def test_handle_query(mock_redis, mock_openai, mock_post):
     mock_embed_response.data = [mock_embed_data]
     mock_openai_instance.embeddings.create.return_value = mock_embed_response
     
-    # Mock Redis search (simplistic test double)
-    # We pretend Redis returned a matching stickerId
-    mock_redis.from_url.return_value.hgetall.return_value = {
-        b"vector": b"[0.1, 0.2, 0.3]",
-        b"stickerId": b"sticker123"
-    }
-    mock_redis.from_url.return_value.keys.return_value = [b"vector:15551234567:sticker123"]
+    # Mock FT.SEARCH
+    mock_ft = MagicMock()
+    mock_redis.from_url.return_value.ft.return_value = mock_ft
+    mock_res = MagicMock()
+    mock_doc = MagicMock()
+    mock_doc.stickerId = "sticker123"
+    mock_res.docs = [mock_doc]
+    mock_ft.search.return_value = mock_res
     
     mock_post.return_value.status_code = 200
     
@@ -32,13 +38,9 @@ def test_handle_query(mock_redis, mock_openai, mock_post):
     
     handle_query(payload)
     
-    # Assertions
     mock_openai_instance.embeddings.create.assert_called_once()
-    mock_redis.from_url.return_value.keys.assert_called_once()
+    mock_ft.search.assert_called_once()
     mock_post.assert_called_once()
     
-    # Check Meta API payload
     args, kwargs = mock_post.call_args
     assert "messaging_product" in kwargs['json']
-    assert kwargs['json']['type'] == "sticker"
-

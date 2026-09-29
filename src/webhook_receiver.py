@@ -16,24 +16,29 @@ def verify_signature(payload: bytes, signature_header: str, app_secret: str) -> 
     ).hexdigest()
     return hmac.compare_digest(expected_signature, signature)
 
-def main(req: func.HttpRequest, msg_stickers: func.Out, msg_queries: func.Out) -> func.HttpResponse:
+def main(req: func.HttpRequest, msg_stickers: func.Out[str], msg_queries: func.Out[str]) -> func.HttpResponse:
     if req.method == 'GET':
         mode = req.params.get('hub.mode')
         token = req.params.get('hub.verify_token')
         challenge = req.params.get('hub.challenge')
         
-        verify_token = os.environ.get('META_VERIFY_TOKEN', '')
-        
-        # Use compare_digest to prevent timing attacks
+        verify_token = os.environ.get('META_VERIFY_TOKEN')
+        if not verify_token:
+            logging.error("META_VERIFY_TOKEN is not set.")
+            return func.HttpResponse("Internal Server Error", status_code=500)
+            
         if mode == 'subscribe' and token and hmac.compare_digest(token, verify_token):
             return func.HttpResponse(challenge, status_code=200)
         return func.HttpResponse("Forbidden", status_code=403)
         
     elif req.method == 'POST':
-        # 1. Verify Signature
-        app_secret = os.environ.get('META_APP_SECRET', '')
+        app_secret = os.environ.get('META_APP_SECRET')
+        if not app_secret:
+            logging.error("META_APP_SECRET is not set.")
+            return func.HttpResponse("Internal Server Error", status_code=500)
+            
         signature = req.headers.get('X-Hub-Signature-256', '')
-        if app_secret and not verify_signature(req.get_body(), signature, app_secret):
+        if not verify_signature(req.get_body(), signature, app_secret):
             logging.warning("Invalid webhook signature")
             return func.HttpResponse("Forbidden", status_code=403)
             
@@ -41,10 +46,8 @@ def main(req: func.HttpRequest, msg_stickers: func.Out, msg_queries: func.Out) -
             req_body = req.get_json()
         except ValueError:
             logging.error("Invalid JSON received")
-            # Return 200 to prevent Meta from retrying malformed payloads
             return func.HttpResponse("OK", status_code=200)
             
-        # Parse minimal info safely without IndexError traps
         try:
             entries = req_body.get('entry', [])
             if not entries:
@@ -70,7 +73,6 @@ def main(req: func.HttpRequest, msg_stickers: func.Out, msg_queries: func.Out) -
         except Exception:
             logging.exception("Unexpected error parsing message")
             
-        # Always return 200 OK so Meta doesn't retry
         return func.HttpResponse("OK", status_code=200)
 
     return func.HttpResponse("Method Not Allowed", status_code=405)
