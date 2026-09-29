@@ -5,6 +5,7 @@ import hmac
 import hashlib
 import azure.functions as func
 from src.clients import get_queue_client
+from src.schemas import MetaWebhookPayload, StickerQueuePayload, QueryQueuePayload
 
 def verify_signature(payload: bytes, signature_header: str, app_secret: str) -> bool:
     if not signature_header or not signature_header.startswith('sha256='):
@@ -46,46 +47,37 @@ async def main(req: func.HttpRequest) -> func.HttpResponse:
             
         try:
             req_body = req.get_json()
-        except ValueError:
-            logging.error("Invalid JSON")
-            return func.HttpResponse("OK", status_code=200)
+            payload = MetaWebhookPayload.model_validate(req_body)
+        except Exception as e:
+            logging.error(f"Invalid Payload: {e}")
+            return func.HttpResponse("OK", status_code=200) # Stop Meta from retrying bad schemas
             
-        entries = req_body.get('entry', [])
-        for entry in entries:
-            changes = entry.get('changes', [])
-            for change in changes:
-                value = change.get('value', {})
-                messages = value.get('messages', [])
-                for message in messages:
-                    msg_type = message.get('type')
-                    user_id = message.get('from')
-                    
-                    if not user_id:
-                        continue
-                    
-                    if msg_type == 'sticker':
-                        sticker_id = message.get('sticker', {}).get('id')
-                        if sticker_id:
-                            try:
-                                await send_to_queue("incoming-stickers", json.dumps({
-                                    "user_id": user_id,
-                                    "sticker_id": sticker_id,
-                                    "media_id": sticker_id
-                                }))
-                            except Exception as e:
-                                logging.error(f"Queue error: {e}")
-                                return func.HttpResponse("Internal Server Error", status_code=500)
-                    elif msg_type == 'text':
-                        query = message.get('text', {}).get('body')
-                        if query:
-                            try:
-                                await send_to_queue("incoming-queries", json.dumps({
-                                    "user_id": user_id,
-                                    "query": query
-                                }))
-                            except Exception as e:
-                                logging.error(f"Queue error: {e}")
-                                return func.HttpResponse("Internal Server Error", status_code=500)
+        for entry in payload.entry:
+            for change in entry.changes:
+                if not change.value.messages:
+                    continue
+                for message in change.value.messages:
+                    if message.type == 'sticker' and message.sticker:
+                        try:
+                            q_msg = StickerQueuePayload(
+                                user_id=message.from_,
+                                sticker_id=message.sticker.id,
+                                media_id=message.sticker.id
+                            )
+                            await send_to_queue("incoming-stickers", q_msg.model_dump_json())
+                        except Exception as e:
+                            logging.error(f"Queue error: {e}")
+                            return func.HttpResponse("Internal Server Error", status_code=500)
+                    elif message.type == 'text' and message.text:
+                        try:
+                            q_msg = QueryQueuePayload(
+                                user_id=message.from_,
+                                query=message.text.body
+                            )
+                            await send_to_queue("incoming-queries", q_msg.model_dump_json())
+                        except Exception as e:
+                            logging.error(f"Queue error: {e}")
+                            return func.HttpResponse("Internal Server Error", status_code=500)
         
         return func.HttpResponse("OK", status_code=200)
 

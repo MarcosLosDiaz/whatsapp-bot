@@ -6,6 +6,7 @@ from openai import APIError, APIConnectionError, RateLimitError
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from src.redis_client import ensure_index
 from src.clients import get_aiohttp_session, get_openai_client, get_redis_client
+from src.schemas import QueryQueuePayload
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(aiohttp.ClientError))
 async def send_message_payload(payload: dict):
@@ -48,16 +49,15 @@ async def get_query_embedding(query: str):
     )
     return embed_response.data[0].embedding
 
-async def handle_query(payload: dict):
-    user_id = payload['user_id']
-    query = payload['query']
+async def handle_query(payload_dict: dict):
+    payload = QueryQueuePayload.model_validate(payload_dict)
     
     await ensure_index()
     
     import re
-    safe_user_id = re.sub(r'([+\-!@#$%^&*()_={}\[\]|\\:;"\'<>,.?/])', r'\\\1', user_id)
+    safe_user_id = re.sub(r'([+\-!@#$%^&*()_={}\[\]|\\:;"\'<>,.?/])', r'\\\1', payload.user_id)
         
-    query_embedding = await get_query_embedding(query)
+    query_embedding = await get_query_embedding(payload.query)
     packed_embedding = struct.pack(f'<{len(query_embedding)}f', *query_embedding)
     
     redis_client = await get_redis_client()
@@ -74,6 +74,6 @@ async def handle_query(payload: dict):
         logging.warning(f"RediSearch failed or index not created: {e}")
         
     if best_sticker_id:
-        await send_sticker(user_id, best_sticker_id)
+        await send_sticker(payload.user_id, best_sticker_id)
     else:
-        await send_text_message(user_id, "Sorry, I couldn't find a matching sticker for your query.")
+        await send_text_message(payload.user_id, "Sorry, I couldn't find a matching sticker for your query.")

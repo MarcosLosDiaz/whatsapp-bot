@@ -4,10 +4,13 @@ import asyncio
 from src.clients import get_redis_client
 
 INDEX_CREATED = False
-_index_lock = asyncio.Lock()
+_index_lock = None
 
 async def ensure_index():
-    global INDEX_CREATED
+    global INDEX_CREATED, _index_lock
+    if _index_lock is None:
+        _index_lock = asyncio.Lock()
+        
     if INDEX_CREATED:
         return
         
@@ -29,7 +32,9 @@ async def ensure_index():
             definition = IndexDefinition(prefix=["vector:"], index_type=IndexType.HASH)
             
             try:
+                # Check if index exists and valid
                 info = await client.ft('idx:stickers').info()
+                # Basic validation that it's a vector index (in production you'd deeply diff the schema)
                 if 'index_definition' not in info:
                     raise ValueError("Index exists but schema invalid")
                 INDEX_CREATED = True

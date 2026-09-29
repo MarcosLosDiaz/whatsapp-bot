@@ -14,27 +14,31 @@ QUEUE_CLIENTS = {}
 REDIS_POOL = None
 OPENAI_CLIENT = None
 
-# Uniform async locks
-_aiohttp_lock = asyncio.Lock()
-_cosmos_lock = asyncio.Lock()
-_queue_lock = asyncio.Lock()
-_redis_lock = asyncio.Lock()
-_openai_lock = asyncio.Lock()
+_aiohttp_lock = None
+_cosmos_lock = None
+_queue_lock = None
+_redis_lock = None
+_openai_lock = None
 
 async def get_aiohttp_session() -> aiohttp.ClientSession:
-    global AIOHTTP_SESSION
+    global AIOHTTP_SESSION, _aiohttp_lock
+    if _aiohttp_lock is None:
+        _aiohttp_lock = asyncio.Lock()
     if AIOHTTP_SESSION is None:
         async with _aiohttp_lock:
             if AIOHTTP_SESSION is None:
-                AIOHTTP_SESSION = aiohttp.ClientSession()
+                # 15s timeout to prevent hanging retries in tenacity
+                AIOHTTP_SESSION = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
     return AIOHTTP_SESSION
 
 async def get_queue_client(queue_name: str) -> QueueClient:
-    global QUEUE_CLIENTS
+    global QUEUE_CLIENTS, _queue_lock
+    if _queue_lock is None:
+        _queue_lock = asyncio.Lock()
     if queue_name not in QUEUE_CLIENTS:
         async with _queue_lock:
             if queue_name not in QUEUE_CLIENTS:
-                conn_str = os.environ['AzureWebJobsStorage'] # Eager fail if missing
+                conn_str = os.environ['AzureWebJobsStorage']
                 QUEUE_CLIENTS[queue_name] = QueueClient.from_connection_string(
                     conn_str, 
                     queue_name,
@@ -43,7 +47,9 @@ async def get_queue_client(queue_name: str) -> QueueClient:
     return QUEUE_CLIENTS[queue_name]
 
 async def get_openai_client() -> AsyncOpenAI:
-    global OPENAI_CLIENT
+    global OPENAI_CLIENT, _openai_lock
+    if _openai_lock is None:
+        _openai_lock = asyncio.Lock()
     if OPENAI_CLIENT is None:
         async with _openai_lock:
             if OPENAI_CLIENT is None:
@@ -51,7 +57,9 @@ async def get_openai_client() -> AsyncOpenAI:
     return OPENAI_CLIENT
 
 async def get_cosmos_container():
-    global COSMOS_CLIENT, COSMOS_CONTAINER
+    global COSMOS_CLIENT, COSMOS_CONTAINER, _cosmos_lock
+    if _cosmos_lock is None:
+        _cosmos_lock = asyncio.Lock()
     if COSMOS_CONTAINER is None:
         async with _cosmos_lock:
             if COSMOS_CONTAINER is None:
@@ -64,7 +72,9 @@ async def get_cosmos_container():
     return COSMOS_CONTAINER
 
 async def get_redis_client() -> redis.Redis:
-    global REDIS_POOL
+    global REDIS_POOL, _redis_lock
+    if _redis_lock is None:
+        _redis_lock = asyncio.Lock()
     if REDIS_POOL is None:
         async with _redis_lock:
             if REDIS_POOL is None:
@@ -73,7 +83,8 @@ async def get_redis_client() -> redis.Redis:
                     host = os.environ.get('REDIS_HOST', 'localhost')
                     port = os.environ.get('REDIS_PORT', '6379')
                     redis_url = f"redis://{host}:{port}"
-                REDIS_POOL = redis.ConnectionPool.from_url(redis_url)
+                max_conn = int(os.environ.get('REDIS_MAX_CONNECTIONS', '10'))
+                REDIS_POOL = redis.ConnectionPool.from_url(redis_url, max_connections=max_conn)
     return redis.Redis(connection_pool=REDIS_POOL)
 
 async def close_all_clients():

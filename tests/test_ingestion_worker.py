@@ -9,11 +9,16 @@ from src.ingestion_worker import process_sticker
 @patch("src.ingestion_worker.generate_description")
 @patch("src.ingestion_worker.download_media")
 @patch("src.ingestion_worker.ensure_index")
-async def test_process_sticker(mock_ensure, mock_download, mock_desc, mock_embed, mock_cosmos, mock_redis, monkeypatch):
+@patch("src.ingestion_worker.get_redis_client")
+async def test_process_sticker(mock_get_redis, mock_ensure, mock_download, mock_desc, mock_embed, mock_cosmos, mock_redis, monkeypatch):
     monkeypatch.setenv("META_GRAPH_TOKEN", "token")
     mock_download.return_value = b"fake_image_data"
     mock_desc.return_value = "A funny dog meme."
     mock_embed.return_value = [0.1, 0.2, 0.3]
+    
+    mock_redis_client = AsyncMock()
+    mock_redis_client.exists.return_value = False
+    mock_get_redis.return_value = mock_redis_client
     
     payload = {
         "user_id": "+15551234567",
@@ -24,6 +29,7 @@ async def test_process_sticker(mock_ensure, mock_download, mock_desc, mock_embed
     await process_sticker(payload)
     
     mock_ensure.assert_called_once()
+    mock_get_redis.assert_called_once()
     mock_download.assert_called_once()
     mock_desc.assert_called_once()
     mock_embed.assert_called_once()
