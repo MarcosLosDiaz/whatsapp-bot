@@ -3,11 +3,12 @@ import struct
 import base64
 import uuid
 import hashlib
+import re
 import aiohttp
 from azure.cosmos.exceptions import CosmosResourceNotFoundError, CosmosResourceExistsError
 from openai import APIConnectionError, RateLimitError, BadRequestError
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
-from src.redis_client import ensure_index
+from src.redis_client import ensure_index, INDEX_CREATED
 from src.clients import get_aiohttp_session, get_openai_client, get_cosmos_stickers_container, get_cosmos_user_stickers_container, get_redis_client
 from src.schemas import StickerQueuePayload, StickerDocument, UserStickerDocument
 from src.config import config
@@ -16,7 +17,7 @@ class DistributedLockError(Exception):
     pass
 
 def hash_pii(data: str) -> str:
-    return hashlib.sha256(data.encode('utf-8')).hexdigest()[:8]
+    return hashlib.sha256((data + config.PII_SALT).encode('utf-8')).hexdigest()[:8]
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(aiohttp.ClientError))
 async def download_media(media_id: str, token: str) -> bytes:
@@ -68,12 +69,13 @@ async def ensure_cosmos_skeleton(sticker_id: str):
         pass
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
-async def patch_cosmos_field(sticker_id: str, field_path: str, value):
+async def conditional_patch_cosmos_field(sticker_id: str, field_path: str, value):
     container = await get_cosmos_stickers_container()
     await container.patch_item(
         item=sticker_id,
         partition_key=sticker_id,
-        patch_operations=[{"op": "set", "path": field_path, "value": value}]
+        patch_operations=[{"op": "set", "path": field_path, "value": value}],
+        filter_predicate=f"FROM c WHERE NOT IS_DEFINED(c['{field_path.strip('/')}'])"
     )
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
@@ -85,7 +87,7 @@ async def save_user_sticker_mapping(user_id: str, sticker_id: str):
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
 async def save_to_redis(user_id: str, sticker_id: str, packed_embedding: bytes):
     redis_client = await get_redis_client()
-    normalized_user = user_id.replace('+', '')
+    normalized_user = re.sub(r'[^a-zA-Z0-9]', '', user_id)
     await redis_client.hset(f"vector:{normalized_user}:{sticker_id}", mapping={
         b"vector": packed_embedding,
         b"stickerId": sticker_id.encode('utf-8'),
@@ -118,9 +120,11 @@ async def process_sticker(payload_dict: dict):
     user_hash = hash_pii(payload.user_id)
     logging.info(f"Processing sticker {payload.sticker_id} for user {user_hash}")
     
-    await ensure_index()
+    if not INDEX_CREATED:
+        await ensure_index()
+        
     redis_client = await get_redis_client()
-    normalized_user = payload.user_id.replace('+', '')
+    normalized_user = re.sub(r'[^a-zA-Z0-9]', '', payload.user_id)
     
     if await redis_client.exists(f"rejected:{payload.sticker_id}"):
         await send_text_message(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
@@ -152,6 +156,8 @@ async def process_sticker(payload_dict: dict):
                     media_bytes = await download_media(payload.media_id, config.META_GRAPH_TOKEN)
                 except ValueError:
                     return # Drop non-image payloads permanently
+                except aiohttp.ClientError:
+                    raise Exception("Network connection failed") from None # Force native queue retry
                 
                 b64_image = base64.b64encode(media_bytes).decode('utf-8')
                 
@@ -160,23 +166,20 @@ async def process_sticker(payload_dict: dict):
                     return # VLM semantic permanent failure drop
                 
                 doc.description = description
-                # Partial document update using Patch API to avoid full document contention
-                await patch_cosmos_field(payload.sticker_id, "/description", description)
+                # Conditional Patch prevents full document contention and "Last Write Wins" race conditions
+                await conditional_patch_cosmos_field(payload.sticker_id, "/description", description)
                 
             if not doc.embedding:
                 doc.embedding = await generate_embeddings(doc.description)
-                await patch_cosmos_field(payload.sticker_id, "/embedding", doc.embedding)
+                await conditional_patch_cosmos_field(payload.sticker_id, "/embedding", doc.embedding)
                 
         except BadRequestError:
             logging.error(f"Semantic API failure on sticker {payload.sticker_id}")
             doc.description = "[REJECTED]"
-            await patch_cosmos_field(payload.sticker_id, "/description", "[REJECTED]")
+            await conditional_patch_cosmos_field(payload.sticker_id, "/description", "[REJECTED]")
             await send_text_message(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
             await mark_redis_rejected(payload.sticker_id)
             return
-        except aiohttp.ClientError:
-            # Raise generic exception to utilize native retries without PII leakage
-            raise Exception("Network connection failed") from None
             
         await save_user_sticker_mapping(payload.user_id, payload.sticker_id)
         

@@ -6,7 +6,7 @@ from azure.cosmos.exceptions import CosmosResourceNotFoundError
 @pytest.mark.asyncio
 @patch("src.ingestion_worker.save_user_sticker_mapping")
 @patch("src.ingestion_worker.save_to_redis")
-@patch("src.ingestion_worker.patch_cosmos_field")
+@patch("src.ingestion_worker.conditional_patch_cosmos_field")
 @patch("src.ingestion_worker.ensure_cosmos_skeleton")
 @patch("src.ingestion_worker.generate_embeddings")
 @patch("src.ingestion_worker.generate_description")

@@ -1,10 +1,11 @@
 import logging
 import struct
 import hashlib
+import re
 import aiohttp
 from openai import APIConnectionError, RateLimitError, BadRequestError
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
-from src.redis_client import ensure_index
+from src.redis_client import ensure_index, INDEX_CREATED
 from src.clients import get_aiohttp_session, get_openai_client, get_redis_client
 from src.schemas import QueryQueuePayload
 from src.config import config
@@ -47,7 +48,7 @@ async def get_query_embedding(query: str):
     return embed_response.data[0].embedding
 
 def hash_pii(data: str) -> str:
-    return hashlib.sha256(data.encode('utf-8')).hexdigest()[:8]
+    return hashlib.sha256((data + config.PII_SALT).encode('utf-8')).hexdigest()[:8]
 
 async def handle_query(payload_dict: dict):
     payload = QueryQueuePayload.model_validate(payload_dict)
@@ -55,9 +56,11 @@ async def handle_query(payload_dict: dict):
     user_hash = hash_pii(payload.user_id)
     logging.info(f"Handling query [REDACTED] for user {user_hash}")
     
-    await ensure_index()
+    if not INDEX_CREATED:
+        await ensure_index()
     
-    normalized_user = payload.user_id.replace('+', '')
+    # Strictly alphanumeric normalization to prevent NoSQL RediSearch injection
+    normalized_user = re.sub(r'[^a-zA-Z0-9]', '', payload.user_id)
         
     try:
         query_embedding = await get_query_embedding(payload.query)
@@ -79,8 +82,9 @@ async def handle_query(payload_dict: dict):
             sticker_val = res.docs[0].stickerId
             best_sticker_id = sticker_val.decode('utf-8') if isinstance(sticker_val, bytes) else sticker_val
     except Exception:
-        # Do NOT log 'e' here! The RediSearch exception string echoes the malformed query containing the unredacted phone number
-        logging.warning(f"RediSearch failed or index not created for user {user_hash}")
+        logging.error(f"RediSearch system error for user {user_hash}")
+        await send_text_message(payload.user_id, "I experienced a system error while searching. Please try again later.")
+        return # Gracefully abort on system failure, preventing false "no results" text
         
     if best_sticker_id:
         logging.info(f"Sending matched sticker to user {user_hash}.")

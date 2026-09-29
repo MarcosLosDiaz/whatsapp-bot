@@ -10,12 +10,17 @@ try:
     else:
         logging.warning("APPLICATIONINSIGHTS_CONNECTION_STRING is missing. Telemetry is disabled.")
 except Exception as e:
-    logging.warning(f"Failed to configure Azure Monitor: {e}")
+    logging.warning(f"Failed to configure Azure Monitor: {type(e).__name__}")
 
 from src import webhook_receiver, ingestion_worker, query_handler
 from src.ingestion_worker import DistributedLockError
+from src.clients import get_queue_client
 
 app = func.FunctionApp()
+
+async def nack_message(queue_name: str, payload_dict: dict, delay_seconds: int = 30):
+    client = await get_queue_client(queue_name)
+    await client.send_message(json.dumps(payload_dict), visibility_timeout=delay_seconds)
 
 @app.route(route="webhook", auth_level=func.AuthLevel.ANONYMOUS)
 async def webhook(req: func.HttpRequest) -> func.HttpResponse:
@@ -32,13 +37,16 @@ async def process_incoming_sticker(msg: func.QueueMessage) -> None:
             return
         await ingestion_worker.process_sticker(payload)
     except DistributedLockError:
-        # Expected concurrency backoff. Throw generic exception to utilize native queue retries 
-        # (and maxDequeueCount) without dumping stack traces of lock mechanics.
-        raise Exception("Concurrent lock contention. Bailing out.") from None
-    except Exception:
-        # Do not log 'e' to prevent Pydantic ValidationError from dumping PII to App Insights
-        logging.error("Error processing sticker msg. Payload validation or processing failed.")
-        raise Exception("Queue payload processing failed") from None # Strip PII from traceback
+        dequeue_count = getattr(msg, 'dequeue_count', 1)
+        if dequeue_count >= 5:
+            logging.error("Max NACK loops reached for lock contention. Poisoning message natively.")
+            raise Exception("Max retries exceeded") from None
+        logging.info("Concurrent lock contention. Manually NACKing message for delayed retry.")
+        await nack_message("incoming-stickers", payload, delay_seconds=30)
+        return
+    except Exception as e:
+        logging.error(f"Error processing sticker msg. Type: {type(e).__name__}")
+        raise Exception(f"Queue payload processing failed: {type(e).__name__}") from None
 
 @app.queue_trigger(arg_name="msg", queue_name="incoming-queries", connection="AzureWebJobsStorage")
 async def process_incoming_query(msg: func.QueueMessage) -> None:
@@ -50,6 +58,6 @@ async def process_incoming_query(msg: func.QueueMessage) -> None:
         if not payload:
             return
         await query_handler.handle_query(payload)
-    except Exception:
-        logging.error("Error processing query msg. Payload validation or processing failed.")
-        raise Exception("Queue payload processing failed") from None # Strip PII from traceback
+    except Exception as e:
+        logging.error(f"Error processing query msg. Type: {type(e).__name__}")
+        raise Exception(f"Queue payload processing failed: {type(e).__name__}") from None
