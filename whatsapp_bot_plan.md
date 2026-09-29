@@ -130,28 +130,7 @@ The bot elegantly differentiates between actions based on the native WhatsApp me
 
 ---
 
-## 6. Proposed Code Architecture
-
-### Infrastructure Definition (Bicep)
-The infrastructure will be modularized for maintainability. A root `main.bicep` will orchestrate the deployment of the following component modules:
-*   `modules/storage.bicep`: Storage Account (Blob container for `.webp` and Queues).
-*   `modules/compute.bicep`: Azure Function App (Consumption, Python), App Service Plan, and Application Insights.
-*   `modules/ai.bicep`: Azure OpenAI (VLM & Embeddings) and Bing Search API.
-*   `modules/database.bicep`: Azure Cosmos DB for NoSQL (Serverless) configured for vector search.
-*   `modules/cache.bicep`: Azure Managed Redis instance.
-*   `modules/security.bicep`: Managed Identity role assignments ensuring the Function App can securely access all other resources without connection strings.
-
-### Application Code (Python)
-*   `host.json`: Configures the Azure Functions runtime, including Application Insights log sampling rates and minimum log levels.
-*   `requirements.txt`: Includes `azure-functions`, `azure-cosmos`, `redis`, `openai`, and `azure-monitor-opentelemetry`.
-*   `function_app.py`: Main entry point for v2 Python programming model. Initializes the OpenTelemetry exporter for App Insights.
-*   `src/webhook_receiver.py`: Handles Meta Verification (`hub.challenge`) and HMAC Signature validation. Pushes raw payload to `incoming-stickers` or `incoming-queries` queues.
-*   `src/ingestion_worker.py`: Downloads `.webp`, uploads to Blob. Implements a Custom Agent Harness using Tool Calling with `gpt-4o-mini` (hardcapped to `max_iterations=3`) to conditionally search Bing only for unknown memes. Embeds the final description, pushes to Cosmos DB, and invalidates/updates the Redis vector cache. Emits custom metrics (e.g., `SearchTriggered`) via the telemetry client.
-*   `src/query_handler.py`: Embeds user text, checks Redis for cached user vectors (falling back to Cosmos DB). Executes the vector similarity search in Redis and posts back to Meta Graph API. Emits `CacheHit` metrics.
-
----
-
-## 7. Security & Observability
+## 6. Security & Observability
 
 ### A. Secrets Management
 We will use **Managed Identity** (System Assigned) for almost everything (Azure Function -> Storage, Cosmos DB, Redis, and Azure OpenAI) to avoid hardcoded credentials. However, we *must* store three external API keys that do not support Microsoft Entra ID:
@@ -283,3 +262,23 @@ A fully automated CI/CD pipeline (e.g., GitHub Actions or Azure DevOps) is expli
 Once the MVP proves viability, the pipeline will be configured with the following testing cadence:
 *   **Unit Tests:** Triggered on *every Pull Request* to ensure immediate feedback on business logic regressions.
 *   **Functional (Happy Path) Tests:** Triggered automatically on merges to the `main` branch and executing against a staging environment (hitting a Dev Cosmos DB) prior to a production swap. This ensures the core ingestion and retrieval loops are never broken before code reaches live users.
+
+### H. Proposed Code Architecture
+The detailed breakdown of files to be generated during implementation.
+
+#### 1. Infrastructure Definition (Bicep)
+The infrastructure will be modularized for maintainability. A root `main.bicep` will orchestrate the deployment of the following component modules:
+*   `modules/storage.bicep`: Storage Account (Blob container for `.webp` and Queues).
+*   `modules/compute.bicep`: Azure Function App (Consumption, Python), App Service Plan, and Application Insights.
+*   `modules/ai.bicep`: Azure OpenAI (VLM & Embeddings) and Bing Search API.
+*   `modules/database.bicep`: Azure Cosmos DB for NoSQL (Serverless) configured for vector search.
+*   `modules/cache.bicep`: Azure Managed Redis instance.
+*   `modules/security.bicep`: Managed Identity role assignments ensuring the Function App can securely access all other resources without connection strings.
+
+#### 2. Application Code (Python)
+*   `host.json`: Configures the Azure Functions runtime, including Application Insights log sampling rates and minimum log levels.
+*   `requirements.txt`: Includes `azure-functions`, `azure-cosmos`, `redis`, `openai`, `azure-monitor-opentelemetry`, and `tenacity` (for exponential backoff and rate-limit handling on raw HTTP calls).
+*   `function_app.py`: Main entry point for v2 Python programming model. Initializes the OpenTelemetry exporter for App Insights.
+*   `src/webhook_receiver.py`: Handles Meta Verification (`hub.challenge`) and HMAC Signature validation. Pushes raw payload to `incoming-stickers` or `incoming-queries` queues.
+*   `src/ingestion_worker.py`: Downloads `.webp`, uploads to Blob. Implements a Custom Agent Harness using Tool Calling with `gpt-4o-mini` (hardcapped to `max_iterations=3`) to conditionally search Bing only for unknown memes. Embeds the final description, pushes to Cosmos DB, and invalidates/updates the Redis vector cache. Uses `tenacity` decorators to gracefully retry on Meta API or Bing API rate limits. Emits custom metrics via telemetry.
+*   `src/query_handler.py`: Embeds user text, checks Redis for cached user vectors (falling back to Cosmos DB). Executes the vector similarity search in Redis and posts back to Meta Graph API (with `tenacity` backoff). Emits `CacheHit` metrics.
