@@ -1,6 +1,5 @@
 import asyncio
 import aiohttp
-import atexit
 from azure.storage.queue.aio import QueueClient
 from azure.storage.queue import TextBase64EncodePolicy
 from azure.cosmos.aio import CosmosClient
@@ -80,27 +79,5 @@ async def get_redis_client() -> redis.Redis:
                 REDIS_POOL = redis.ConnectionPool.from_url(redis_url, max_connections=config.REDIS_MAX_CONNECTIONS)
     return redis.Redis(connection_pool=REDIS_POOL)
 
-async def close_all_clients():
-    global AIOHTTP_SESSION, COSMOS_CLIENT, QUEUE_CLIENTS, REDIS_POOL
-    try:
-        if AIOHTTP_SESSION:
-            await AIOHTTP_SESSION.close()
-        if COSMOS_CLIENT:
-            await COSMOS_CLIENT.close()
-        for q in QUEUE_CLIENTS.values():
-            await q.close()
-        if REDIS_POOL:
-            await REDIS_POOL.disconnect()
-    except Exception:
-        pass
-
-def _teardown():
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(close_all_clients())
-        loop.close()
-    except Exception:
-        pass
-
-atexit.register(_teardown)
+# As requested by the reviewer, we strictly avoid atexit teardowns that cause asyncio loop conflicts.
+# The serverless platform natively cleans up stateless workers via process exit.

@@ -1,8 +1,9 @@
+import logging
 import struct
 import base64
 import aiohttp
 from azure.cosmos.exceptions import CosmosResourceNotFoundError
-from openai import APIError, APIConnectionError, RateLimitError
+from openai import APIConnectionError, RateLimitError, BadRequestError
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from src.redis_client import ensure_index
 from src.clients import get_aiohttp_session, get_openai_client, get_cosmos_container, get_redis_client
@@ -25,7 +26,7 @@ async def download_media(media_id: str, token: str) -> bytes:
             raise ValueError(f"Invalid media type: {content_type}")
         return await media_resp.read()
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type((APIError, APIConnectionError, RateLimitError)))
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type((APIConnectionError, RateLimitError)))
 async def generate_description(b64_image: str) -> str:
     client = await get_openai_client()
     response = await client.chat.completions.create(
@@ -40,7 +41,7 @@ async def generate_description(b64_image: str) -> str:
     )
     return response.choices[0].message.content
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type((APIError, APIConnectionError, RateLimitError)))
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type((APIConnectionError, RateLimitError)))
 async def generate_embeddings(description: str) -> list:
     client = await get_openai_client()
     embed_response = await client.embeddings.create(
@@ -52,7 +53,7 @@ async def generate_embeddings(description: str) -> list:
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
 async def save_to_cosmos(doc: StickerDocument):
     container = await get_cosmos_container()
-    await container.upsert_item(doc.model_dump(by_alias=True))
+    await container.upsert_item(doc.model_dump(by_alias=True, exclude_none=True))
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
 async def save_to_redis(user_id: str, sticker_id: str, packed_embedding: bytes):
@@ -66,47 +67,54 @@ async def save_to_redis(user_id: str, sticker_id: str, packed_embedding: bytes):
 
 async def process_sticker(payload_dict: dict):
     payload = StickerQueuePayload.model_validate(payload_dict)
+    logging.info(f"Processing sticker {payload.sticker_id} for user {payload.user_id}")
     
     await ensure_index()
     
     redis_client = await get_redis_client()
     
-    # Fast idempotent check
     if await redis_client.exists(f"vector:{payload.user_id}:{payload.sticker_id}"):
+        logging.info("Sticker already exists in Redis, fast idempotency drop.")
         return
         
-    # Distributed lock to prevent race conditions on duplicate queue events
+    # Distributed lock (5 min expiry exactly aligns with Azure Function Consumption timeout)
     lock_key = f"lock:ingest:{payload.user_id}:{payload.sticker_id}"
     if not await redis_client.set(lock_key, "1", nx=True, ex=300):
-        return # Another worker is actively processing this exact sticker
+        logging.warning(f"Lock held for {payload.sticker_id}, likely concurrent webhook. Dropping.")
+        return 
     
     try:
-        # Check if Cosmos already has it (Partial failure recovery to prevent VLM cost bleed)
         container = await get_cosmos_container()
         try:
             existing = await container.read_item(item=payload.sticker_id, partition_key=payload.user_id)
             doc = StickerDocument.model_validate(existing)
-            embedding = doc.embedding
+            logging.info("Recovered intermediate state from CosmosDB.")
         except CosmosResourceNotFoundError:
-            # Need to run VLM pipeline
-            media_bytes = await download_media(payload.media_id, config.META_GRAPH_TOKEN)
-            b64_image = base64.b64encode(media_bytes).decode('utf-8')
+            doc = StickerDocument(id=payload.sticker_id, userId=payload.user_id)
+
+        try:
+            if not doc.description:
+                logging.info("Downloading media and generating description...")
+                media_bytes = await download_media(payload.media_id, config.META_GRAPH_TOKEN)
+                b64_image = base64.b64encode(media_bytes).decode('utf-8')
+                doc.description = await generate_description(b64_image)
+                if not doc.description:
+                    raise ValueError("VLM returned empty description.")
+                await save_to_cosmos(doc) # Intermediate commit to save VLM cost on retry
+                
+            if not doc.embedding:
+                logging.info("Generating vector embeddings...")
+                doc.embedding = await generate_embeddings(doc.description)
+                await save_to_cosmos(doc) # Final commit
+                
+        except BadRequestError as e:
+            # Semantic failure (e.g. content policy violation). Do not retry. Drop the message.
+            logging.error(f"Semantic API failure on sticker {payload.sticker_id}: {e}")
+            return
             
-            description = await generate_description(b64_image)
-            if not description:
-                raise ValueError("VLM failed to generate a description for the sticker.")
-            
-            embedding = await generate_embeddings(description)
-            
-            doc = StickerDocument(
-                id=payload.sticker_id,
-                userId=payload.user_id,
-                description=description,
-                embedding=embedding
-            )
-            await save_to_cosmos(doc)
-        
-        packed_embedding = struct.pack(f'<{len(embedding)}f', *embedding)
+        logging.info("Saving embeddings to RediSearch...")
+        packed_embedding = struct.pack(f'<{len(doc.embedding)}f', *doc.embedding)
         await save_to_redis(payload.user_id, payload.sticker_id, packed_embedding)
+        logging.info("Sticker processing complete.")
     finally:
         await redis_client.delete(lock_key)

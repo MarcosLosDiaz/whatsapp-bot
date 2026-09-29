@@ -1,7 +1,7 @@
 import logging
 import struct
 import aiohttp
-from openai import APIError, APIConnectionError, RateLimitError
+from openai import APIConnectionError, RateLimitError, BadRequestError
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from src.redis_client import ensure_index
 from src.clients import get_aiohttp_session, get_openai_client, get_redis_client
@@ -36,7 +36,7 @@ async def send_text_message(user_id: str, text: str):
     }
     await send_message_payload(payload)
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type((APIError, APIConnectionError, RateLimitError)))
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type((APIConnectionError, RateLimitError)))
 async def get_query_embedding(query: str):
     client = await get_openai_client()
     embed_response = await client.embeddings.create(
@@ -47,13 +47,19 @@ async def get_query_embedding(query: str):
 
 async def handle_query(payload_dict: dict):
     payload = QueryQueuePayload.model_validate(payload_dict)
+    logging.info(f"Handling query '{payload.query}' for user {payload.user_id}")
     
     await ensure_index()
     
     import re
     safe_user_id = re.sub(r'([+\-!@#$%^&*()_={}\[\]|\\:;"\'<>,.?/])', r'\\\1', payload.user_id)
         
-    query_embedding = await get_query_embedding(payload.query)
+    try:
+        query_embedding = await get_query_embedding(payload.query)
+    except BadRequestError as e:
+        logging.error(f"Semantic API failure on query: {e}")
+        return # Drop permanent failure
+        
     packed_embedding = struct.pack(f'<{len(query_embedding)}f', *query_embedding)
     
     redis_client = await get_redis_client()
@@ -70,6 +76,8 @@ async def handle_query(payload_dict: dict):
         logging.warning(f"RediSearch failed or index not created: {e}")
         
     if best_sticker_id:
+        logging.info(f"Sending matched sticker {best_sticker_id} to user.")
         await send_sticker(payload.user_id, best_sticker_id)
     else:
+        logging.info("No matching sticker found. Sending text fallback.")
         await send_text_message(payload.user_id, "Sorry, I couldn't find a matching sticker for your query.")

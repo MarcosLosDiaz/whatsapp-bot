@@ -39,5 +39,6 @@ async def test_process_sticker(mock_cosmos, mock_get_redis, mock_ensure, mock_do
     mock_download.assert_called_once()
     mock_desc.assert_called_once()
     mock_embed.assert_called_once()
-    mock_save_cosmos.assert_called_once()
+    # Cosmos gets saved twice: once after description, once after embedding
+    assert mock_save_cosmos.call_count == 2
     mock_redis.assert_called_once()
