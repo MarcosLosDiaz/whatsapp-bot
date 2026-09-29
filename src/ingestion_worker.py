@@ -8,7 +8,6 @@ from azure.cosmos import CosmosClient
 import redis
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 
-# Global connection pooling
 OPENAI_CLIENT = None
 COSMOS_CONTAINER = None
 REDIS_CLIENT = None
@@ -32,7 +31,7 @@ def get_redis_client():
         REDIS_CLIENT = redis.Redis.from_url(f"redis://{os.environ['REDIS_HOST']}:{os.environ['REDIS_PORT']}")
     return REDIS_CLIENT
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(requests.exceptions.ConnectionError))
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type((requests.exceptions.ConnectionError, requests.exceptions.HTTPError)))
 def download_media(media_id: str, token: str) -> bytes:
     headers = {"Authorization": f"Bearer {token}"}
     url_resp = requests.get(f"https://graph.facebook.com/v18.0/{media_id}", headers=headers)
@@ -47,6 +46,9 @@ def process_sticker(payload: dict):
     user_id = payload['user_id']
     sticker_id = payload['sticker_id']
     media_id = payload['media_id']
+    
+    # Strip '+' from user_id for RediSearch safety
+    safe_user_id = user_id.replace('+', '')
     
     token = os.environ.get('META_GRAPH_TOKEN')
     if not token:
@@ -78,18 +80,18 @@ def process_sticker(payload: dict):
     container = get_cosmos_container()
     doc = {
         "id": sticker_id,
-        "userId": user_id,
+        "userId": safe_user_id,
         "description": description,
         "embedding": embedding
     }
     container.upsert_item(doc)
     
-    # Pack embedding to bytes for RediSearch (1536 floats)
-    packed_embedding = struct.pack(f'{len(embedding)}f', *embedding)
+    packed_embedding = struct.pack(f'<{len(embedding)}f', *embedding)
     
     redis_client = get_redis_client()
-    redis_client.hset(f"vector:{user_id}:{sticker_id}", mapping={
+    redis_client.hset(f"vector:{safe_user_id}:{sticker_id}", mapping={
         b"vector": packed_embedding,
-        b"stickerId": sticker_id.encode('utf-8')
+        b"stickerId": sticker_id.encode('utf-8'),
+        b"userId": safe_user_id.encode('utf-8')
     })
-    redis_client.delete(f"user_history:{user_id}")
+    redis_client.delete(f"user_history:{safe_user_id}")
