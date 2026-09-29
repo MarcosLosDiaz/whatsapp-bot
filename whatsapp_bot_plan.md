@@ -282,3 +282,10 @@ The infrastructure will be modularized for maintainability. A root `main.bicep` 
 *   `src/webhook_receiver.py`: Handles Meta Verification (`hub.challenge`) and HMAC Signature validation. Pushes raw payload to `incoming-stickers` or `incoming-queries` queues.
 *   `src/ingestion_worker.py`: Downloads `.webp`, uploads to Blob. Implements a Custom Agent Harness using Tool Calling with `gpt-4o-mini` (hardcapped to `max_iterations=3`) to conditionally search Bing only for unknown memes. Embeds the final description, pushes to Cosmos DB, and invalidates/updates the Redis vector cache. Uses `tenacity` decorators to gracefully retry on Meta API or Bing API rate limits. Emits custom metrics via telemetry.
 *   `src/query_handler.py`: Embeds user text, checks Redis for cached user vectors (falling back to Cosmos DB). Executes the vector similarity search in Redis and posts back to Meta Graph API (with `tenacity` backoff). Emits `CacheHit` metrics.
+
+### I. Pre-runtime Checks & Code Quality
+To catch bugs before they ever reach the Azure Function runtime, we will enforce strict Python best practices locally:
+
+1. **Linting & Formatting (`ruff`):** We will use `ruff` to act as an ultra-fast drop-in replacement for both `flake8` (linting) and `black` (formatting). It ensures PEP-8 compliance and catches unused imports or undefined variables.
+2. **Static Type Checking (`mypy`):** The codebase will be fully type-hinted. `mypy` will run to statically verify that functions are passing the correct data types, preventing classic `TypeError` exceptions during webhook ingestion.
+3. **Automated Enforcement (`pre-commit`):** We will implement a `.pre-commit-config.yaml` file. Every time a developer attempts to `git commit`, the pre-commit hook will automatically run `ruff` and `mypy`. The commit will be blocked if any pre-runtime checks fail.
