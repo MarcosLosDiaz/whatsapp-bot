@@ -13,6 +13,7 @@ except Exception as e:
     logging.warning(f"Failed to configure Azure Monitor: {e}")
 
 from src import webhook_receiver, ingestion_worker, query_handler
+from src.ingestion_worker import DistributedLockError
 
 app = func.FunctionApp()
 
@@ -30,8 +31,13 @@ async def process_incoming_sticker(msg: func.QueueMessage) -> None:
         if not payload:
             return
         await ingestion_worker.process_sticker(payload)
-    except Exception as e:
-        logging.exception(f"Error processing sticker msg: {e}")
+    except DistributedLockError as e:
+        # Expected concurrency backoff. Log as INFO without traceback to prevent log spam.
+        logging.info("Concurrent lock contention. NACKing message for retry.")
+        raise
+    except Exception:
+        # Do not log 'e' to prevent Pydantic ValidationError from dumping PII to App Insights
+        logging.error("Error processing sticker msg. Payload validation or processing failed.")
         raise
 
 @app.queue_trigger(arg_name="msg", queue_name="incoming-queries", connection="AzureWebJobsStorage")
@@ -44,6 +50,7 @@ async def process_incoming_query(msg: func.QueueMessage) -> None:
         if not payload:
             return
         await query_handler.handle_query(payload)
-    except Exception as e:
-        logging.exception(f"Error processing query msg: {e}")
+    except Exception:
+        # Do not log 'e' to prevent PII leakage from JSON/ValidationError dumps
+        logging.error("Error processing query msg. Payload validation or processing failed.")
         raise
