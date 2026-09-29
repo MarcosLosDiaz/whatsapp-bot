@@ -3,41 +3,17 @@ from unittest.mock import AsyncMock, patch, MagicMock
 from src.ingestion_worker import process_sticker
 
 @pytest.mark.asyncio
+@patch("src.ingestion_worker.save_to_redis")
+@patch("src.ingestion_worker.save_to_cosmos")
+@patch("src.ingestion_worker.generate_embeddings")
+@patch("src.ingestion_worker.generate_description")
+@patch("src.ingestion_worker.download_media")
 @patch("src.ingestion_worker.ensure_index")
-@patch("src.ingestion_worker.get_aiohttp_session")
-@patch("src.ingestion_worker.get_openai_client")
-@patch("src.ingestion_worker.get_cosmos_container")
-@patch("src.ingestion_worker.get_redis_client")
-async def test_process_sticker(mock_redis_getter, mock_cosmos_getter, mock_openai_getter, mock_get_session, mock_ensure):
-    mock_session = MagicMock()
-    mock_get_session.return_value = mock_session
-    
-    mock_resp1 = AsyncMock()
-    mock_resp1.raise_for_status = MagicMock()
-    mock_resp1.json.return_value = {"url": "http://image"}
-    
-    mock_resp2 = AsyncMock()
-    mock_resp2.raise_for_status = MagicMock()
-    mock_resp2.headers = {'Content-Type': 'image/jpeg'}
-    mock_resp2.read.return_value = b"fake_image_data"
-    
-    mock_session.get.side_effect = [AsyncMock(__aenter__=AsyncMock(return_value=mock_resp1)), AsyncMock(__aenter__=AsyncMock(return_value=mock_resp2))]
-    
-    mock_openai_instance = AsyncMock()
-    mock_openai_getter.return_value = mock_openai_instance
-    mock_message = MagicMock()
-    mock_message.content = "A funny dog meme."
-    mock_choice = MagicMock()
-    mock_choice.message = mock_message
-    mock_chat_response = MagicMock()
-    mock_chat_response.choices = [mock_choice]
-    mock_openai_instance.chat.completions.create.return_value = mock_chat_response
-    
-    mock_embed_data = MagicMock()
-    mock_embed_data.embedding = [0.1, 0.2, 0.3]
-    mock_embed_response = MagicMock()
-    mock_embed_response.data = [mock_embed_data]
-    mock_openai_instance.embeddings.create.return_value = mock_embed_response
+async def test_process_sticker(mock_ensure, mock_download, mock_desc, mock_embed, mock_cosmos, mock_redis, monkeypatch):
+    monkeypatch.setenv("META_GRAPH_TOKEN", "token")
+    mock_download.return_value = b"fake_image_data"
+    mock_desc.return_value = "A funny dog meme."
+    mock_embed.return_value = [0.1, 0.2, 0.3]
     
     payload = {
         "user_id": "+15551234567",
@@ -45,16 +21,11 @@ async def test_process_sticker(mock_redis_getter, mock_cosmos_getter, mock_opena
         "media_id": "media456"
     }
     
-    mock_redis = AsyncMock()
-    mock_redis_getter.return_value = mock_redis
-    
-    mock_container = AsyncMock()
-    mock_cosmos_getter.return_value = mock_container
-    
     await process_sticker(payload)
     
-    assert mock_session.get.call_count == 2
-    mock_openai_instance.chat.completions.create.assert_called_once()
-    mock_openai_instance.embeddings.create.assert_called_once()
-    mock_container.upsert_item.assert_called_once()
-    mock_redis.hset.assert_called_once()
+    mock_ensure.assert_called_once()
+    mock_download.assert_called_once()
+    mock_desc.assert_called_once()
+    mock_embed.assert_called_once()
+    mock_cosmos.assert_called_once()
+    mock_redis.assert_called_once()

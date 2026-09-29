@@ -3,35 +3,27 @@ from unittest.mock import AsyncMock, patch, MagicMock
 from src.query_handler import handle_query
 
 @pytest.mark.asyncio
-@patch("src.query_handler.ensure_index")
-@patch("src.query_handler.get_aiohttp_session")
-@patch("src.query_handler.get_openai_client")
+@patch("src.query_handler.send_text_message")
+@patch("src.query_handler.send_sticker")
 @patch("src.query_handler.get_redis_client")
-async def test_handle_query(mock_redis_getter, mock_openai_getter, mock_get_session, mock_ensure):
-    mock_session = MagicMock()
-    mock_get_session.return_value = mock_session
-    
-    mock_openai_instance = AsyncMock()
-    mock_openai_getter.return_value = mock_openai_instance
-    mock_embed_data = MagicMock()
-    mock_embed_data.embedding = [0.1, 0.2, 0.3]
-    mock_embed_response = MagicMock()
-    mock_embed_response.data = [mock_embed_data]
-    mock_openai_instance.embeddings.create.return_value = mock_embed_response
+@patch("src.query_handler.get_query_embedding")
+@patch("src.query_handler.ensure_index")
+async def test_handle_query(mock_ensure, mock_get_embed, mock_get_redis, mock_send_sticker, mock_send_text):
+    mock_get_embed.return_value = [0.1, 0.2, 0.3]
     
     mock_redis = MagicMock()
-    mock_redis_getter.return_value = mock_redis
-    mock_ft = AsyncMock()
+    mock_get_redis.return_value = mock_redis
+    
+    mock_ft = MagicMock()
     mock_redis.ft.return_value = mock_ft
     mock_res = MagicMock()
     mock_doc = MagicMock()
     mock_doc.stickerId = "sticker123"
     mock_res.docs = [mock_doc]
-    mock_ft.search.return_value = mock_res
     
-    mock_resp = AsyncMock()
-    mock_resp.raise_for_status = MagicMock()
-    mock_session.post.return_value.__aenter__.return_value = mock_resp
+    mock_search = AsyncMock()
+    mock_search.return_value = mock_res
+    mock_ft.search = mock_search
     
     payload = {
         "user_id": "+15551234567",
@@ -40,6 +32,8 @@ async def test_handle_query(mock_redis_getter, mock_openai_getter, mock_get_sess
     
     await handle_query(payload)
     
-    mock_openai_instance.embeddings.create.assert_called_once()
+    mock_ensure.assert_called_once()
+    mock_get_embed.assert_called_once()
     mock_ft.search.assert_called_once()
-    mock_session.post.assert_called_once()
+    mock_send_sticker.assert_called_once()
+    mock_send_text.assert_not_called()

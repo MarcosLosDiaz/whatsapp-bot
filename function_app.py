@@ -2,9 +2,13 @@ import azure.functions as func
 from azure.monitor.opentelemetry import configure_azure_monitor
 import json
 import logging
+import os
 
 try:
-    configure_azure_monitor()
+    if os.environ.get('APPLICATIONINSIGHTS_CONNECTION_STRING'):
+        configure_azure_monitor()
+    else:
+        logging.warning("APPLICATIONINSIGHTS_CONNECTION_STRING is missing. Telemetry is disabled.")
 except Exception as e:
     logging.warning(f"Failed to configure Azure Monitor: {e}")
 

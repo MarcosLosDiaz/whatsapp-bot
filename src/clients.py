@@ -1,6 +1,5 @@
 import os
 import asyncio
-import threading
 import aiohttp
 from azure.storage.queue.aio import QueueClient
 from azure.storage.queue import TextBase64EncodePolicy
@@ -15,12 +14,12 @@ QUEUE_CLIENTS = {}
 REDIS_POOL = None
 OPENAI_CLIENT = None
 
-# Locks to prevent race conditions during cold starts
+# Uniform async locks
 _aiohttp_lock = asyncio.Lock()
 _cosmos_lock = asyncio.Lock()
 _queue_lock = asyncio.Lock()
-_redis_lock = threading.Lock()
-_openai_lock = threading.Lock()
+_redis_lock = asyncio.Lock()
+_openai_lock = asyncio.Lock()
 
 async def get_aiohttp_session() -> aiohttp.ClientSession:
     global AIOHTTP_SESSION
@@ -43,10 +42,10 @@ async def get_queue_client(queue_name: str) -> QueueClient:
                 )
     return QUEUE_CLIENTS[queue_name]
 
-def get_openai_client() -> AsyncOpenAI:
+async def get_openai_client() -> AsyncOpenAI:
     global OPENAI_CLIENT
     if OPENAI_CLIENT is None:
-        with _openai_lock:
+        async with _openai_lock:
             if OPENAI_CLIENT is None:
                 OPENAI_CLIENT = AsyncOpenAI(api_key=os.environ['OPENAI_API_KEY'])
     return OPENAI_CLIENT
@@ -56,15 +55,18 @@ async def get_cosmos_container():
     if COSMOS_CONTAINER is None:
         async with _cosmos_lock:
             if COSMOS_CONTAINER is None:
+                db_name = os.environ.get('COSMOS_DB_DATABASE', 'WhatsAppBot')
+                container_name = os.environ.get('COSMOS_DB_CONTAINER', 'stickers')
                 COSMOS_CLIENT = CosmosClient(os.environ['COSMOS_DB_URL'], credential=os.environ['COSMOS_DB_KEY'])
-                db = COSMOS_CLIENT.get_database_client('WhatsAppBot')
-                COSMOS_CONTAINER = db.get_container_client('stickers')
+                db = COSMOS_CLIENT.get_database_client(db_name)
+                # Infrastructure explicitly requires the partition key to be /userId for upsert_item to work
+                COSMOS_CONTAINER = db.get_container_client(container_name)
     return COSMOS_CONTAINER
 
-def get_redis_client() -> redis.Redis:
+async def get_redis_client() -> redis.Redis:
     global REDIS_POOL
     if REDIS_POOL is None:
-        with _redis_lock:
+        async with _redis_lock:
             if REDIS_POOL is None:
                 redis_url = os.environ.get('REDIS_URL')
                 if not redis_url:
@@ -73,3 +75,20 @@ def get_redis_client() -> redis.Redis:
                     redis_url = f"redis://{host}:{port}"
                 REDIS_POOL = redis.ConnectionPool.from_url(redis_url)
     return redis.Redis(connection_pool=REDIS_POOL)
+
+async def close_all_clients():
+    """
+    Gracefully tear down global singleton connections.
+    Note: Azure Functions v2 Python programming model lacks native worker shutdown lifecycle hooks.
+    This coroutine is provided to facilitate graceful teardown via manual invocation or future
+    host-level lifecycle extensions, preventing 'Unclosed client session' memory leaks.
+    """
+    global AIOHTTP_SESSION, COSMOS_CLIENT, QUEUE_CLIENTS, REDIS_POOL
+    if AIOHTTP_SESSION:
+        await AIOHTTP_SESSION.close()
+    if COSMOS_CLIENT:
+        await COSMOS_CLIENT.close()
+    for q in QUEUE_CLIENTS.values():
+        await q.close()
+    if REDIS_POOL:
+        await REDIS_POOL.disconnect()
