@@ -19,12 +19,19 @@ async def ensure_index():
             VectorField("vector", "FLAT", {"TYPE": "FLOAT32", "DIM": 1536, "DISTANCE_METRIC": "COSINE"})
         )
         definition = IndexDefinition(prefix=["vector:"], index_type=IndexType.HASH)
-        await client.ft('idx:stickers').create_index(fields=schema, definition=definition)
-        logging.info("RediSearch index created.")
-        INDEX_CREATED = True
-    except Exception as e:
-        if "Index already exists" in str(e):
+        
+        try:
+            # Check if index exists and valid
+            info = await client.ft('idx:stickers').info()
+            # Basic validation that it's a vector index (in production you'd deeply diff the schema)
+            if 'index_definition' not in info:
+                raise ValueError("Index exists but schema invalid")
             INDEX_CREATED = True
-        else:
-            logging.error(f"RediSearch index creation failed: {e}")
-            raise # Fail fast if index creation legitimately fails so we don't silently ignore it
+        except Exception:
+            # Index doesn't exist or is invalid, create it
+            await client.ft('idx:stickers').create_index(fields=schema, definition=definition)
+            logging.info("RediSearch index created.")
+            INDEX_CREATED = True
+    except Exception as e:
+        logging.error(f"RediSearch index creation failed: {e}")
+        raise # Fail fast if index creation legitimately fails so we don't silently ignore it
