@@ -58,6 +58,7 @@ async def handle_query(payload_dict: dict):
         query_embedding = await get_query_embedding(payload.query)
     except BadRequestError as e:
         logging.error(f"Semantic API failure on query: {e}")
+        await send_text_message(payload.user_id, "I couldn't process your query due to a policy restriction.")
         return # Drop permanent failure
         
     packed_embedding = struct.pack(f'<{len(query_embedding)}f', *query_embedding)

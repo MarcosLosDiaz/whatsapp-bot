@@ -10,6 +10,9 @@ from src.clients import get_aiohttp_session, get_openai_client, get_cosmos_conta
 from src.schemas import StickerQueuePayload, StickerDocument
 from src.config import config
 
+class DistributedLockError(Exception):
+    pass
+
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(aiohttp.ClientError))
 async def download_media(media_id: str, token: str) -> bytes:
     headers = {"Authorization": f"Bearer {token}"}
@@ -77,11 +80,10 @@ async def process_sticker(payload_dict: dict):
         logging.info("Sticker already exists in Redis, fast idempotency drop.")
         return
         
-    # Distributed lock (5 min expiry exactly aligns with Azure Function Consumption timeout)
     lock_key = f"lock:ingest:{payload.user_id}:{payload.sticker_id}"
     if not await redis_client.set(lock_key, "1", nx=True, ex=300):
-        logging.warning(f"Lock held for {payload.sticker_id}, likely concurrent webhook. Dropping.")
-        return 
+        logging.warning(f"Lock held for {payload.sticker_id}, likely concurrent webhook. NACKing to preserve visibility.")
+        raise DistributedLockError("Lock held, preserving queue visibility")
     
     try:
         container = await get_cosmos_container()
@@ -95,20 +97,23 @@ async def process_sticker(payload_dict: dict):
         try:
             if not doc.description:
                 logging.info("Downloading media and generating description...")
-                media_bytes = await download_media(payload.media_id, config.META_GRAPH_TOKEN)
+                try:
+                    media_bytes = await download_media(payload.media_id, config.META_GRAPH_TOKEN)
+                except ValueError as e:
+                    logging.error(f"Semantic failure downloading media: {e}")
+                    return # Drop non-image payloads permanently
                 b64_image = base64.b64encode(media_bytes).decode('utf-8')
                 doc.description = await generate_description(b64_image)
                 if not doc.description:
                     raise ValueError("VLM returned empty description.")
-                await save_to_cosmos(doc) # Intermediate commit to save VLM cost on retry
+                await save_to_cosmos(doc)
                 
             if not doc.embedding:
                 logging.info("Generating vector embeddings...")
                 doc.embedding = await generate_embeddings(doc.description)
-                await save_to_cosmos(doc) # Final commit
+                await save_to_cosmos(doc)
                 
         except BadRequestError as e:
-            # Semantic failure (e.g. content policy violation). Do not retry. Drop the message.
             logging.error(f"Semantic API failure on sticker {payload.sticker_id}: {e}")
             return
             
