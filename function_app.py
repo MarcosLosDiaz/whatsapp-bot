@@ -14,8 +14,13 @@ except Exception as e:
 
 from src import webhook_receiver, ingestion_worker, query_handler
 from src.ingestion_worker import DistributedLockError
+from src.clients import get_queue_client
 
 app = func.FunctionApp()
+
+async def nack_message(queue_name: str, payload_dict: dict, delay_seconds: int = 30):
+    client = await get_queue_client(queue_name)
+    await client.send_message(json.dumps(payload_dict), visibility_timeout=delay_seconds)
 
 @app.route(route="webhook", auth_level=func.AuthLevel.ANONYMOUS)
 async def webhook(req: func.HttpRequest) -> func.HttpResponse:
@@ -31,14 +36,13 @@ async def process_incoming_sticker(msg: func.QueueMessage) -> None:
         if not payload:
             return
         await ingestion_worker.process_sticker(payload)
-    except DistributedLockError as e:
-        # Expected concurrency backoff. Log as INFO without traceback to prevent log spam.
-        logging.info("Concurrent lock contention. NACKing message for retry.")
-        raise
+    except DistributedLockError:
+        logging.info("Concurrent lock contention. Manually NACKing message for delayed retry.")
+        await nack_message("incoming-stickers", payload, delay_seconds=30)
+        return # Complete execution gracefully to avoid App Insights error spam
     except Exception:
-        # Do not log 'e' to prevent Pydantic ValidationError from dumping PII to App Insights
         logging.error("Error processing sticker msg. Payload validation or processing failed.")
-        raise
+        raise Exception("Queue payload processing failed") from None # Strip PII from traceback
 
 @app.queue_trigger(arg_name="msg", queue_name="incoming-queries", connection="AzureWebJobsStorage")
 async def process_incoming_query(msg: func.QueueMessage) -> None:
@@ -51,6 +55,5 @@ async def process_incoming_query(msg: func.QueueMessage) -> None:
             return
         await query_handler.handle_query(payload)
     except Exception:
-        # Do not log 'e' to prevent PII leakage from JSON/ValidationError dumps
         logging.error("Error processing query msg. Payload validation or processing failed.")
-        raise
+        raise Exception("Queue payload processing failed") from None # Strip PII from traceback
