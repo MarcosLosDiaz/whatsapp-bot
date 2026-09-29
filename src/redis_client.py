@@ -15,12 +15,12 @@ def get_redis_client():
 def ensure_index():
     client = get_redis_client()
     try:
-        from redis.commands.search.field import VectorField, TextField
+        from redis.commands.search.field import VectorField, TagField
         from redis.commands.search.indexDefinition import IndexDefinition, IndexType
         
         schema = (
-            TextField("userId"),
-            TextField("stickerId"),
+            TagField("userId"),
+            TagField("stickerId"),
             VectorField("vector", "FLAT", {"TYPE": "FLOAT32", "DIM": 1536, "DISTANCE_METRIC": "COSINE"})
         )
         definition = IndexDefinition(prefix=["vector:"], index_type=IndexType.HASH)

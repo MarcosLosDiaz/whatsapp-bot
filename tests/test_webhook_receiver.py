@@ -5,14 +5,7 @@ import json
 import os
 import hmac
 import hashlib
-
-class MockOut:
-    def __init__(self):
-        self.val = None
-    def set(self, val):
-        self.val = val
-    def get(self):
-        return self.val
+from unittest.mock import patch
 
 def test_webhook_verify_success(monkeypatch):
     monkeypatch.setenv("META_VERIFY_TOKEN", "test_verify_token")
@@ -26,14 +19,13 @@ def test_webhook_verify_success(monkeypatch):
             'hub.challenge': '112233'
         }
     )
-    msg_stickers = MockOut()
-    msg_queries = MockOut()
     
-    resp = main(req, msg_stickers, msg_queries)
+    resp = main(req)
     assert resp.status_code == 200
     assert resp.get_body() == b'112233'
 
-def test_webhook_post_sticker(monkeypatch):
+@patch('src.webhook_receiver.send_to_queue')
+def test_webhook_post_sticker(mock_send, monkeypatch):
     monkeypatch.setenv("META_APP_SECRET", "secret123")
     payload = {
         "object": "whatsapp_business_account",
@@ -59,9 +51,6 @@ def test_webhook_post_sticker(monkeypatch):
         headers={'X-Hub-Signature-256': signature}
     )
     
-    msg_stickers = MockOut()
-    msg_queries = MockOut()
-    
-    resp = main(req, msg_stickers, msg_queries)
+    resp = main(req)
     assert resp.status_code == 200
-    assert msg_stickers.val is not None
+    mock_send.assert_called_once()

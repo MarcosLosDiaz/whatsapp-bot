@@ -1,9 +1,10 @@
-import azure.functions as func
 import logging
 import os
 import json
 import hmac
 import hashlib
+import azure.functions as func
+from azure.storage.queue import QueueClient
 
 def verify_signature(payload: bytes, signature_header: str, app_secret: str) -> bool:
     if not signature_header or not signature_header.startswith('sha256='):
@@ -16,11 +17,13 @@ def verify_signature(payload: bytes, signature_header: str, app_secret: str) -> 
     ).hexdigest()
     return hmac.compare_digest(expected_signature, signature)
 
-def main(req: func.HttpRequest, msg_stickers: func.Out[str], msg_queries: func.Out[str]) -> func.HttpResponse:
-    # Initialize output bindings to avoid runtime errors
-    msg_stickers.set("")
-    msg_queries.set("")
-    
+def send_to_queue(queue_name: str, message: str):
+    conn_str = os.environ.get('AzureWebJobsStorage')
+    if conn_str:
+        queue_client = QueueClient.from_connection_string(conn_str, queue_name)
+        queue_client.send_message(message)
+
+def main(req: func.HttpRequest) -> func.HttpResponse:
     if req.method == 'GET':
         mode = req.params.get('hub.mode')
         token = req.params.get('hub.verify_token')
@@ -28,7 +31,6 @@ def main(req: func.HttpRequest, msg_stickers: func.Out[str], msg_queries: func.O
         
         verify_token = os.environ.get('META_VERIFY_TOKEN')
         if not verify_token:
-            logging.error("META_VERIFY_TOKEN is not set.")
             return func.HttpResponse("Internal Server Error", status_code=500)
             
         if mode == 'subscribe' and token and hmac.compare_digest(token, verify_token):
@@ -38,21 +40,14 @@ def main(req: func.HttpRequest, msg_stickers: func.Out[str], msg_queries: func.O
     elif req.method == 'POST':
         app_secret = os.environ.get('META_APP_SECRET')
         if not app_secret:
-            logging.error("META_APP_SECRET is not set.")
             return func.HttpResponse("Internal Server Error", status_code=500)
             
         signature = req.headers.get('X-Hub-Signature-256', '')
         if not verify_signature(req.get_body(), signature, app_secret):
-            logging.warning("Invalid webhook signature")
             return func.HttpResponse("Forbidden", status_code=403)
             
         try:
             req_body = req.get_json()
-        except ValueError:
-            logging.error("Invalid JSON received")
-            return func.HttpResponse("OK", status_code=200)
-            
-        try:
             entries = req_body.get('entry', [])
             if not entries:
                 return func.HttpResponse("OK", status_code=200)
@@ -76,7 +71,7 @@ def main(req: func.HttpRequest, msg_stickers: func.Out[str], msg_queries: func.O
             if msg_type == 'sticker':
                 sticker_id = message.get('sticker', {}).get('id')
                 if sticker_id:
-                    msg_stickers.set(json.dumps({
+                    send_to_queue("incoming-stickers", json.dumps({
                         "user_id": user_id,
                         "sticker_id": sticker_id,
                         "media_id": sticker_id
@@ -84,7 +79,7 @@ def main(req: func.HttpRequest, msg_stickers: func.Out[str], msg_queries: func.O
             elif msg_type == 'text':
                 query = message.get('text', {}).get('body')
                 if query:
-                    msg_queries.set(json.dumps({
+                    send_to_queue("incoming-queries", json.dumps({
                         "user_id": user_id,
                         "query": query
                     }))

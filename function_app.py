@@ -13,10 +13,8 @@ from src import webhook_receiver, ingestion_worker, query_handler
 app = func.FunctionApp()
 
 @app.route(route="webhook", auth_level=func.AuthLevel.ANONYMOUS)
-@app.queue_output(arg_name="msg_stickers", queue_name="incoming-stickers", connection="AzureWebJobsStorage")
-@app.queue_output(arg_name="msg_queries", queue_name="incoming-queries", connection="AzureWebJobsStorage")
-def webhook(req: func.HttpRequest, msg_stickers: func.Out[str], msg_queries: func.Out[str]) -> func.HttpResponse:
-    return webhook_receiver.main(req, msg_stickers, msg_queries)
+def webhook(req: func.HttpRequest) -> func.HttpResponse:
+    return webhook_receiver.main(req)
 
 @app.queue_trigger(arg_name="msg", queue_name="incoming-stickers", connection="AzureWebJobsStorage")
 def process_incoming_sticker(msg: func.QueueMessage) -> None:

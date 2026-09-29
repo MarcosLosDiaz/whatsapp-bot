@@ -34,7 +34,6 @@ def download_media(media_id: str, token: str) -> bytes:
     media_resp = requests.get(media_url, headers=headers)
     media_resp.raise_for_status()
     
-    # Validation: Ensure it's an image
     content_type = media_resp.headers.get('Content-Type', '')
     if not content_type.startswith('image/'):
         raise ValueError(f"Invalid media type: {content_type}")
@@ -47,10 +46,6 @@ def process_sticker(payload: dict):
     media_id = payload['media_id']
     
     ensure_index()
-    
-    # Proper escaping
-    import re
-    safe_user_id = re.sub(r'([+\-!@#$%^&*()_={}\[\]|\\:;"\'<>,.?/])', r'\\\1', user_id)
     
     token = os.environ.get('META_GRAPH_TOKEN')
     if not token:
@@ -72,6 +67,9 @@ def process_sticker(payload: dict):
         }]
     )
     description = response.choices[0].message.content
+    if not description:
+        logging.error("VLM failed to generate a description for the sticker.")
+        return
     
     embed_response = client.embeddings.create(
         model="text-embedding-3-small",

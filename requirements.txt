@@ -7,3 +7,4 @@ tenacity
 pytest
 pytest-asyncio
 pytest-mock
+azure-storage-queue==12.9.0
