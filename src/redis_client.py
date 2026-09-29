@@ -3,6 +3,7 @@ import redis
 import logging
 
 REDIS_POOL = None
+INDEX_CREATED = False
 
 def get_redis_client():
     global REDIS_POOL
@@ -13,6 +14,10 @@ def get_redis_client():
     return redis.Redis(connection_pool=REDIS_POOL)
 
 def ensure_index():
+    global INDEX_CREATED
+    if INDEX_CREATED:
+        return
+        
     client = get_redis_client()
     try:
         from redis.commands.search.field import VectorField, TagField
@@ -29,3 +34,5 @@ def ensure_index():
     except Exception as e:
         if "Index already exists" not in str(e):
             logging.warning(f"RediSearch index creation failed: {e}")
+    finally:
+        INDEX_CREATED = True

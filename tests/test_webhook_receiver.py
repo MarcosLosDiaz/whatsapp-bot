@@ -7,7 +7,8 @@ import hmac
 import hashlib
 from unittest.mock import patch
 
-def test_webhook_verify_success(monkeypatch):
+@pytest.mark.asyncio
+async def test_webhook_verify_success(monkeypatch):
     monkeypatch.setenv("META_VERIFY_TOKEN", "test_verify_token")
     req = func.HttpRequest(
         method='GET',
@@ -20,12 +21,13 @@ def test_webhook_verify_success(monkeypatch):
         }
     )
     
-    resp = main(req)
+    resp = await main(req)
     assert resp.status_code == 200
     assert resp.get_body() == b'112233'
 
+@pytest.mark.asyncio
 @patch('src.webhook_receiver.send_to_queue')
-def test_webhook_post_sticker(mock_send, monkeypatch):
+async def test_webhook_post_sticker(mock_send, monkeypatch):
     monkeypatch.setenv("META_APP_SECRET", "secret123")
     payload = {
         "object": "whatsapp_business_account",
@@ -51,6 +53,6 @@ def test_webhook_post_sticker(mock_send, monkeypatch):
         headers={'X-Hub-Signature-256': signature}
     )
     
-    resp = main(req)
+    resp = await main(req)
     assert resp.status_code == 200
     mock_send.assert_called_once()

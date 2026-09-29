@@ -1,8 +1,9 @@
 import os
 import logging
-import requests
 import struct
-from openai import OpenAI
+import asyncio
+import aiohttp
+from openai import AsyncOpenAI
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from src.redis_client import get_redis_client, ensure_index
 
@@ -11,11 +12,11 @@ OPENAI_CLIENT = None
 def get_openai_client():
     global OPENAI_CLIENT
     if not OPENAI_CLIENT:
-        OPENAI_CLIENT = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
+        OPENAI_CLIENT = AsyncOpenAI(api_key=os.environ['OPENAI_API_KEY'])
     return OPENAI_CLIENT
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type((requests.exceptions.ConnectionError, requests.exceptions.HTTPError)))
-def send_sticker(user_id: str, sticker_id: str, token: str, phone_number_id: str):
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(aiohttp.ClientError))
+async def send_sticker(user_id: str, sticker_id: str, token: str, phone_number_id: str):
     url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     payload = {
@@ -27,11 +28,12 @@ def send_sticker(user_id: str, sticker_id: str, token: str, phone_number_id: str
             "id": sticker_id
         }
     }
-    resp = requests.post(url, headers=headers, json=payload)
-    resp.raise_for_status()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=payload) as resp:
+            resp.raise_for_status()
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type((requests.exceptions.ConnectionError, requests.exceptions.HTTPError)))
-def send_text_message(user_id: str, text: str, token: str, phone_number_id: str):
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(aiohttp.ClientError))
+async def send_text_message(user_id: str, text: str, token: str, phone_number_id: str):
     url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     payload = {
@@ -43,14 +45,15 @@ def send_text_message(user_id: str, text: str, token: str, phone_number_id: str)
             "body": text
         }
     }
-    resp = requests.post(url, headers=headers, json=payload)
-    resp.raise_for_status()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=payload) as resp:
+            resp.raise_for_status()
 
-def handle_query(payload: dict):
+async def handle_query(payload: dict):
     user_id = payload['user_id']
     query = payload['query']
     
-    ensure_index()
+    await asyncio.to_thread(ensure_index)
     
     import re
     # Proper escaping for RediSearch TagFields: escape punctuation
@@ -63,7 +66,7 @@ def handle_query(payload: dict):
         raise ValueError("Missing META_PHONE_ID or META_GRAPH_TOKEN")
         
     client = get_openai_client()
-    embed_response = client.embeddings.create(
+    embed_response = await client.embeddings.create(
         model="text-embedding-3-small",
         input=query
     )
@@ -76,7 +79,7 @@ def handle_query(payload: dict):
     try:
         from redis.commands.search.query import Query
         q = Query(f'(@userId:{{{safe_user_id}}})=>[KNN 1 @vector $vec as score]').sort_by('score').return_fields('stickerId').dialect(2)
-        res = redis_client.ft('idx:stickers').search(q, query_params={'vec': packed_embedding})
+        res = await asyncio.to_thread(redis_client.ft('idx:stickers').search, q, query_params={'vec': packed_embedding})
         if res.docs:
             sticker_val = res.docs[0].stickerId
             best_sticker_id = sticker_val.decode('utf-8') if isinstance(sticker_val, bytes) else sticker_val
@@ -84,6 +87,6 @@ def handle_query(payload: dict):
         logging.warning(f"RediSearch failed or index not created: {e}")
         
     if best_sticker_id:
-        send_sticker(user_id, best_sticker_id, token, phone_id)
+        await send_sticker(user_id, best_sticker_id, token, phone_id)
     else:
-        send_text_message(user_id, "Sorry, I couldn't find a matching sticker for your query.", token, phone_id)
+        await send_text_message(user_id, "Sorry, I couldn't find a matching sticker for your query.", token, phone_id)

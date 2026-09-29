@@ -4,7 +4,9 @@ import json
 import hmac
 import hashlib
 import azure.functions as func
-from azure.storage.queue import QueueClient
+from azure.storage.queue import QueueClient, TextBase64EncodePolicy
+
+QUEUE_CLIENTS = {}
 
 def verify_signature(payload: bytes, signature_header: str, app_secret: str) -> bool:
     if not signature_header or not signature_header.startswith('sha256='):
@@ -17,13 +19,24 @@ def verify_signature(payload: bytes, signature_header: str, app_secret: str) -> 
     ).hexdigest()
     return hmac.compare_digest(expected_signature, signature)
 
-def send_to_queue(queue_name: str, message: str):
-    conn_str = os.environ.get('AzureWebJobsStorage')
-    if conn_str:
-        queue_client = QueueClient.from_connection_string(conn_str, queue_name)
-        queue_client.send_message(message)
+def get_queue_client(queue_name: str):
+    global QUEUE_CLIENTS
+    if queue_name not in QUEUE_CLIENTS:
+        conn_str = os.environ.get('AzureWebJobsStorage')
+        if conn_str:
+            QUEUE_CLIENTS[queue_name] = QueueClient.from_connection_string(
+                conn_str, 
+                queue_name,
+                message_encode_policy=TextBase64EncodePolicy()
+            )
+    return QUEUE_CLIENTS.get(queue_name)
 
-def main(req: func.HttpRequest) -> func.HttpResponse:
+def send_to_queue(queue_name: str, message: str):
+    client = get_queue_client(queue_name)
+    if client:
+        client.send_message(message)
+
+async def main(req: func.HttpRequest) -> func.HttpResponse:
     if req.method == 'GET':
         mode = req.params.get('hub.mode')
         token = req.params.get('hub.verify_token')
@@ -49,41 +62,33 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         try:
             req_body = req.get_json()
             entries = req_body.get('entry', [])
-            if not entries:
-                return func.HttpResponse("OK", status_code=200)
-                
-            changes = entries[0].get('changes', [])
-            if not changes:
-                return func.HttpResponse("OK", status_code=200)
-                
-            value = changes[0].get('value', {})
-            messages = value.get('messages', [])
-            if not messages:
-                return func.HttpResponse("OK", status_code=200)
-                
-            message = messages[0]
-            msg_type = message.get('type')
-            user_id = message.get('from')
-            
-            if not user_id:
-                return func.HttpResponse("OK", status_code=200)
-            
-            if msg_type == 'sticker':
-                sticker_id = message.get('sticker', {}).get('id')
-                if sticker_id:
-                    send_to_queue("incoming-stickers", json.dumps({
-                        "user_id": user_id,
-                        "sticker_id": sticker_id,
-                        "media_id": sticker_id
-                    }))
-            elif msg_type == 'text':
-                query = message.get('text', {}).get('body')
-                if query:
-                    send_to_queue("incoming-queries", json.dumps({
-                        "user_id": user_id,
-                        "query": query
-                    }))
-                
+            for entry in entries:
+                changes = entry.get('changes', [])
+                for change in changes:
+                    value = change.get('value', {})
+                    messages = value.get('messages', [])
+                    for message in messages:
+                        msg_type = message.get('type')
+                        user_id = message.get('from')
+                        
+                        if not user_id:
+                            continue
+                        
+                        if msg_type == 'sticker':
+                            sticker_id = message.get('sticker', {}).get('id')
+                            if sticker_id:
+                                send_to_queue("incoming-stickers", json.dumps({
+                                    "user_id": user_id,
+                                    "sticker_id": sticker_id,
+                                    "media_id": sticker_id
+                                }))
+                        elif msg_type == 'text':
+                            query = message.get('text', {}).get('body')
+                            if query:
+                                send_to_queue("incoming-queries", json.dumps({
+                                    "user_id": user_id,
+                                    "query": query
+                                }))
         except Exception:
             logging.exception("Unexpected error parsing message")
             
