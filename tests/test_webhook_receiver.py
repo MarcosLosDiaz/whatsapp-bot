@@ -8,15 +8,14 @@ import hashlib
 from unittest.mock import patch
 
 @pytest.mark.asyncio
-async def test_webhook_verify_success(monkeypatch):
-    monkeypatch.setenv("META_VERIFY_TOKEN", "test_verify_token")
+async def test_webhook_verify_success():
     req = func.HttpRequest(
         method='GET',
         body=b'',
         url='/api/webhook',
         params={
             'hub.mode': 'subscribe',
-            'hub.verify_token': 'test_verify_token',
+            'hub.verify_token': 'test',
             'hub.challenge': '112233'
         }
     )
@@ -27,8 +26,7 @@ async def test_webhook_verify_success(monkeypatch):
 
 @pytest.mark.asyncio
 @patch('src.webhook_receiver.send_to_queue')
-async def test_webhook_post_sticker(mock_send, monkeypatch):
-    monkeypatch.setenv("META_APP_SECRET", "secret123")
+async def test_webhook_post_sticker(mock_send):
     payload = {
         "object": "whatsapp_business_account",
         "entry": [{
@@ -44,7 +42,7 @@ async def test_webhook_post_sticker(mock_send, monkeypatch):
         }]
     }
     body_bytes = json.dumps(payload).encode('utf-8')
-    signature = "sha256=" + hmac.new(b"secret123", msg=body_bytes, digestmod=hashlib.sha256).hexdigest()
+    signature = "sha256=" + hmac.new(b"test", msg=body_bytes, digestmod=hashlib.sha256).hexdigest()
     
     req = func.HttpRequest(
         method='POST',

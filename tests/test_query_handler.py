@@ -4,15 +4,12 @@ from src.query_handler import handle_query
 
 @pytest.mark.asyncio
 @patch("src.query_handler.ensure_index")
-@patch("src.query_handler.aiohttp.ClientSession.post")
+@patch("src.query_handler.get_aiohttp_session")
 @patch("src.query_handler.AsyncOpenAI")
 @patch("src.query_handler.get_redis_client")
-async def test_handle_query(mock_redis_getter, mock_openai, mock_post, mock_ensure, monkeypatch):
-    monkeypatch.setenv("META_PHONE_ID", "123456")
-    monkeypatch.setenv("META_GRAPH_TOKEN", "token")
-    monkeypatch.setenv("REDIS_HOST", "localhost")
-    monkeypatch.setenv("REDIS_PORT", "6379")
-    monkeypatch.setenv("OPENAI_API_KEY", "key")
+async def test_handle_query(mock_redis_getter, mock_openai, mock_get_session, mock_ensure):
+    mock_session = MagicMock()
+    mock_get_session.return_value = mock_session
     
     mock_openai_instance = AsyncMock()
     mock_openai.return_value = mock_openai_instance
@@ -24,7 +21,7 @@ async def test_handle_query(mock_redis_getter, mock_openai, mock_post, mock_ensu
     
     mock_redis = MagicMock()
     mock_redis_getter.return_value = mock_redis
-    mock_ft = MagicMock()
+    mock_ft = AsyncMock()
     mock_redis.ft.return_value = mock_ft
     mock_res = MagicMock()
     mock_doc = MagicMock()
@@ -34,7 +31,7 @@ async def test_handle_query(mock_redis_getter, mock_openai, mock_post, mock_ensu
     
     mock_resp = AsyncMock()
     mock_resp.raise_for_status = MagicMock()
-    mock_post.return_value.__aenter__.return_value = mock_resp
+    mock_session.post.return_value.__aenter__.return_value = mock_resp
     
     payload = {
         "user_id": "+15551234567",
@@ -45,4 +42,4 @@ async def test_handle_query(mock_redis_getter, mock_openai, mock_post, mock_ensu
     
     mock_openai_instance.embeddings.create.assert_called_once()
     mock_ft.search.assert_called_once()
-    mock_post.assert_called_once()
+    mock_session.post.assert_called_once()

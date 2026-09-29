@@ -9,3 +9,5 @@ pytest-asyncio
 pytest-mock
 azure-storage-queue==12.9.0
 aiohttp==3.9.5
+azure-cosmos>=4.6.0
+redis>=5.0.0
