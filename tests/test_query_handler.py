@@ -5,14 +5,14 @@ from src.query_handler import handle_query
 @pytest.mark.asyncio
 @patch("src.query_handler.ensure_index")
 @patch("src.query_handler.get_aiohttp_session")
-@patch("src.query_handler.AsyncOpenAI")
+@patch("src.query_handler.get_openai_client")
 @patch("src.query_handler.get_redis_client")
-async def test_handle_query(mock_redis_getter, mock_openai, mock_get_session, mock_ensure):
+async def test_handle_query(mock_redis_getter, mock_openai_getter, mock_get_session, mock_ensure):
     mock_session = MagicMock()
     mock_get_session.return_value = mock_session
     
     mock_openai_instance = AsyncMock()
-    mock_openai.return_value = mock_openai_instance
+    mock_openai_getter.return_value = mock_openai_instance
     mock_embed_data = MagicMock()
     mock_embed_data.embedding = [0.1, 0.2, 0.3]
     mock_embed_response = MagicMock()

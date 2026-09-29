@@ -1,41 +1,12 @@
 import os
-import logging
 import struct
 import base64
 import aiohttp
-from openai import AsyncOpenAI
-from azure.cosmos.aio import CosmosClient
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
-from src.redis_client import get_redis_client, ensure_index
+from src.redis_client import ensure_index
+from src.clients import get_aiohttp_session, get_openai_client, get_cosmos_container, get_redis_client
 
-OPENAI_API_KEY = os.environ['OPENAI_API_KEY']
-COSMOS_DB_URL = os.environ['COSMOS_DB_URL']
-COSMOS_DB_KEY = os.environ['COSMOS_DB_KEY']
 META_GRAPH_TOKEN = os.environ['META_GRAPH_TOKEN']
-
-OPENAI_CLIENT = None
-COSMOS_CONTAINER = None
-AIOHTTP_SESSION = None
-
-def get_openai_client():
-    global OPENAI_CLIENT
-    if not OPENAI_CLIENT:
-        OPENAI_CLIENT = AsyncOpenAI(api_key=OPENAI_API_KEY)
-    return OPENAI_CLIENT
-
-async def get_cosmos_container():
-    global COSMOS_CONTAINER
-    if not COSMOS_CONTAINER:
-        client = CosmosClient(COSMOS_DB_URL, credential=COSMOS_DB_KEY)
-        db = client.get_database_client('WhatsAppBot')
-        COSMOS_CONTAINER = db.get_container_client('stickers')
-    return COSMOS_CONTAINER
-
-def get_aiohttp_session():
-    global AIOHTTP_SESSION
-    if AIOHTTP_SESSION is None:
-        AIOHTTP_SESSION = aiohttp.ClientSession()
-    return AIOHTTP_SESSION
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(aiohttp.ClientError))
 async def download_media(media_id: str, token: str) -> bytes:

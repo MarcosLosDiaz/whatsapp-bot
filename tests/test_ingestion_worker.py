@@ -5,10 +5,10 @@ from src.ingestion_worker import process_sticker
 @pytest.mark.asyncio
 @patch("src.ingestion_worker.ensure_index")
 @patch("src.ingestion_worker.get_aiohttp_session")
-@patch("src.ingestion_worker.AsyncOpenAI")
-@patch("src.ingestion_worker.CosmosClient")
+@patch("src.ingestion_worker.get_openai_client")
+@patch("src.ingestion_worker.get_cosmos_container")
 @patch("src.ingestion_worker.get_redis_client")
-async def test_process_sticker(mock_redis_getter, mock_cosmos, mock_openai, mock_get_session, mock_ensure):
+async def test_process_sticker(mock_redis_getter, mock_cosmos_getter, mock_openai_getter, mock_get_session, mock_ensure):
     mock_session = MagicMock()
     mock_get_session.return_value = mock_session
     
@@ -24,7 +24,7 @@ async def test_process_sticker(mock_redis_getter, mock_cosmos, mock_openai, mock
     mock_session.get.side_effect = [AsyncMock(__aenter__=AsyncMock(return_value=mock_resp1)), AsyncMock(__aenter__=AsyncMock(return_value=mock_resp2))]
     
     mock_openai_instance = AsyncMock()
-    mock_openai.return_value = mock_openai_instance
+    mock_openai_getter.return_value = mock_openai_instance
     mock_message = MagicMock()
     mock_message.content = "A funny dog meme."
     mock_choice = MagicMock()
@@ -48,12 +48,8 @@ async def test_process_sticker(mock_redis_getter, mock_cosmos, mock_openai, mock
     mock_redis = AsyncMock()
     mock_redis_getter.return_value = mock_redis
     
-    mock_cosmos_instance = MagicMock()
-    mock_cosmos.return_value = mock_cosmos_instance
-    mock_db = MagicMock()
     mock_container = AsyncMock()
-    mock_cosmos_instance.get_database_client.return_value = mock_db
-    mock_db.get_container_client.return_value = mock_container
+    mock_cosmos_getter.return_value = mock_container
     
     await process_sticker(payload)
     

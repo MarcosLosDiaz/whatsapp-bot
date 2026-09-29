@@ -4,14 +4,11 @@ import json
 import hmac
 import hashlib
 import azure.functions as func
-from azure.storage.queue.aio import QueueClient
-from azure.storage.queue import TextBase64EncodePolicy
+from src.clients import get_queue_client
 
+# Eager startup validation
 META_VERIFY_TOKEN = os.environ['META_VERIFY_TOKEN']
 META_APP_SECRET = os.environ['META_APP_SECRET']
-AZURE_WEBJOBS_STORAGE = os.environ.get('AzureWebJobsStorage')
-
-QUEUE_CLIENTS = {}
 
 def verify_signature(payload: bytes, signature_header: str, app_secret: str) -> bool:
     if not signature_header or not signature_header.startswith('sha256='):
@@ -24,21 +21,9 @@ def verify_signature(payload: bytes, signature_header: str, app_secret: str) -> 
     ).hexdigest()
     return hmac.compare_digest(expected_signature, signature)
 
-def get_queue_client(queue_name: str):
-    global QUEUE_CLIENTS
-    if queue_name not in QUEUE_CLIENTS:
-        if AZURE_WEBJOBS_STORAGE:
-            QUEUE_CLIENTS[queue_name] = QueueClient.from_connection_string(
-                AZURE_WEBJOBS_STORAGE, 
-                queue_name,
-                message_encode_policy=TextBase64EncodePolicy()
-            )
-    return QUEUE_CLIENTS.get(queue_name)
-
 async def send_to_queue(queue_name: str, message: str):
     client = get_queue_client(queue_name)
-    if client:
-        await client.send_message(message)
+    await client.send_message(message)
 
 async def main(req: func.HttpRequest) -> func.HttpResponse:
     if req.method == 'GET':
