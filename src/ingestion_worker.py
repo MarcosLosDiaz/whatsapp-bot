@@ -1,3 +1,4 @@
+from src.messaging import get_messaging_provider
 import logging
 import struct
 import base64
@@ -101,19 +102,6 @@ async def mark_redis_rejected(sticker_id: str):
     await redis_client.set(key, "1", ex=86400 * 7)
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(aiohttp.ClientError))
-async def send_text_message(user_id: str, text: str):
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": user_id,
-        "type": "text",
-        "text": {"body": text}
-    }
-    url = f"https://graph.facebook.com/{config.META_GRAPH_VERSION}/{config.META_PHONE_ID}/messages"
-    headers = {"Authorization": f"Bearer {config.META_GRAPH_TOKEN}", "Content-Type": "application/json"}
-    session = await get_aiohttp_session()
-    async with session.post(url, headers=headers, json=payload) as resp:
-        resp.raise_for_status()
 
 async def process_sticker(payload_dict: dict):
     payload = StickerQueuePayload.model_validate(payload_dict)
@@ -127,7 +115,7 @@ async def process_sticker(payload_dict: dict):
     normalized_user = re.sub(r'[^a-zA-Z0-9]', '', payload.user_id)
     
     if await redis_client.exists(f"rejected:{payload.sticker_id}"):
-        await send_text_message(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
+        await get_messaging_provider().send_text(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
         return
         
     if await redis_client.exists(f"vector:{normalized_user}:{payload.sticker_id}"):
@@ -146,7 +134,7 @@ async def process_sticker(payload_dict: dict):
         doc = StickerDocument.model_validate(existing)
 
         if doc.description == "[REJECTED]":
-            await send_text_message(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
+            await get_messaging_provider().send_text(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
             await mark_redis_rejected(payload.sticker_id)
             return
 
@@ -177,7 +165,7 @@ async def process_sticker(payload_dict: dict):
             logging.error(f"Semantic API failure on sticker {payload.sticker_id}")
             doc.description = "[REJECTED]"
             await conditional_patch_cosmos_field(payload.sticker_id, "/description", "[REJECTED]")
-            await send_text_message(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
+            await get_messaging_provider().send_text(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
             await mark_redis_rejected(payload.sticker_id)
             return
             

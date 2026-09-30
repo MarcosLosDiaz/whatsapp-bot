@@ -1,3 +1,4 @@
+from src.messaging import get_messaging_provider
 import logging
 import struct
 import hashlib
@@ -11,32 +12,8 @@ from src.schemas import QueryQueuePayload
 from src.config import config
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(aiohttp.ClientError))
-async def send_message_payload(payload: dict):
-    url = f"https://graph.facebook.com/{config.META_GRAPH_VERSION}/{config.META_PHONE_ID}/messages"
-    headers = {"Authorization": f"Bearer {config.META_GRAPH_TOKEN}", "Content-Type": "application/json"}
-    session = await get_aiohttp_session()
-    async with session.post(url, headers=headers, json=payload) as resp:
-        resp.raise_for_status()
 
-async def send_sticker(user_id: str, sticker_id: str):
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": user_id,
-        "type": "sticker",
-        "sticker": {"id": sticker_id}
-    }
-    await send_message_payload(payload)
 
-async def send_text_message(user_id: str, text: str):
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": user_id,
-        "type": "text",
-        "text": {"body": text}
-    }
-    await send_message_payload(payload)
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type((APIConnectionError, RateLimitError)))
 async def get_query_embedding(query: str):
@@ -66,7 +43,7 @@ async def handle_query(payload_dict: dict):
         query_embedding = await get_query_embedding(payload.query)
     except BadRequestError:
         logging.error(f"Semantic API failure on query for user {user_hash}")
-        await send_text_message(payload.user_id, "I couldn't process your query due to a policy restriction.")
+        await get_messaging_provider().send_text(payload.user_id, "I couldn't process your query due to a policy restriction.")
         return
         
     packed_embedding = struct.pack(f'<{len(query_embedding)}f', *query_embedding)
@@ -83,12 +60,12 @@ async def handle_query(payload_dict: dict):
             best_sticker_id = sticker_val.decode('utf-8') if isinstance(sticker_val, bytes) else sticker_val
     except Exception:
         logging.error(f"RediSearch system error for user {user_hash}")
-        await send_text_message(payload.user_id, "I experienced a system error while searching. Please try again later.")
+        await get_messaging_provider().send_text(payload.user_id, "I experienced a system error while searching. Please try again later.")
         return # Gracefully abort on system failure, preventing false "no results" text
         
     if best_sticker_id:
         logging.info(f"Sending matched sticker to user {user_hash}.")
-        await send_sticker(payload.user_id, best_sticker_id)
+        await get_messaging_provider().send_sticker(payload.user_id, best_sticker_id)
     else:
         logging.info(f"No matching sticker found. Sending text fallback to user {user_hash}.")
-        await send_text_message(payload.user_id, "Sorry, I couldn't find a matching sticker for your query.")
+        await get_messaging_provider().send_text(payload.user_id, "Sorry, I couldn't find a matching sticker for your query.")
