@@ -9,7 +9,7 @@
     "COSMOS_DB_DATABASE": "WhatsAppBot",
     "REDIS_URL": "redis://localhost:6379",
     "REDIS_VECTOR_DIMENSIONS": "1536",
-    "OPENAI_API_KEY": "<your-real-openai-key>",
+    "OPENAI_APIKEY": "<your-real-openai-key>",
     "OPENAI_VLM_MODEL": "gpt-4o-mini",
     "OPENAI_EMBEDDING_MODEL": "text-embedding-3-small",
     "META_VERIFY_TOKEN": "local_test_token",

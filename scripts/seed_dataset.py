@@ -40,8 +40,8 @@ async def fetch_sticker_sample():
 
 async def seed_stickers():
     print("Initializing environment...")
-    if not os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY") == "<your-real-openai-key>":
-        print("OPENAI_API_KEY not set. Mocking OpenAI calls for local test...")
+    if not os.environ.get("OPENAI_APIKEY") or os.environ.get("OPENAI_APIKEY") == "<your-real-openai-key>":
+        print("OPENAI_APIKEY not set. Mocking OpenAI calls for local test...")
         import src.clients
         class DummyEmbeddingObject:
             def __init__(self):

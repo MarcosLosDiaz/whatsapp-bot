@@ -19,9 +19,9 @@ os.environ["DEPLOY_ENV"] = "local_terminal"
 import asyncio
 from src.query_handler import handle_query
 
-# Optional mock if OPENAI_API_KEY is not set
-if not os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY") == "<your-real-openai-key>":
-    print("⚠️ OPENAI_API_KEY not set. Using dummy vectors for search.")
+# Optional mock if OPENAI_APIKEY is not set
+if not os.environ.get("OPENAI_APIKEY") or os.environ.get("OPENAI_APIKEY") == "<your-real-openai-key>":
+    print("⚠️ OPENAI_APIKEY not set. Using dummy vectors for search.")
     import src.clients
     class DummyEmbeddingObject:
         def __init__(self):

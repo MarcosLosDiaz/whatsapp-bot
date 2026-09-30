@@ -5,7 +5,7 @@ import logging
 DEPLOY_ENV = os.environ.get("DEPLOY_ENV", "local")
 
 def _load_config_store() -> dict:
-    if DEPLOY_ENV == "local":
+    if DEPLOY_ENV in ["local", "local_terminal"]:
         return dict(os.environ)
     
     # Azure: pull from App Configuration, which transparently resolves Key Vault refs
@@ -43,7 +43,7 @@ class Config:
         self.META_PHONE_ID = store.get("META_PHONE_ID")
         self.META_GRAPH_VERSION = store.get("META_GRAPH_VERSION", "v20.0")
 
-        self.OPENAI_API_KEY = store.get("OPENAI_API_KEY")
+        self.OPENAI_API_KEY = store.get("OPENAI_APIKEY")
         self.OPENAI_VLM_MODEL = store.get("OPENAI_VLM_MODEL", "gpt-4o-mini")
         self.OPENAI_EMBEDDING_MODEL = store.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 
@@ -66,7 +66,7 @@ class Config:
         if not self.META_APP_SECRET: missing.append("META_APP_SECRET")
         if not self.META_GRAPH_TOKEN: missing.append("META_GRAPH_TOKEN")
         if not self.META_PHONE_ID: missing.append("META_PHONE_ID")
-        if not self.OPENAI_API_KEY: missing.append("OPENAI_API_KEY")
+        if not self.OPENAI_API_KEY: missing.append("OPENAI_APIKEY")
         if not self.COSMOS_DB_URL: missing.append("COSMOS_DB_URL")
         if not self.COSMOS_DB_KEY: missing.append("COSMOS_DB_KEY")
         if not self.REDIS_URL and not self.REDIS_HOST: missing.append("REDIS_URL or REDIS_HOST")
