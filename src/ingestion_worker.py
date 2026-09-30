@@ -20,7 +20,7 @@ class DistributedLockError(Exception):
 def hash_pii(data: str) -> str:
     return hashlib.sha256((data + config.PII_SALT).encode('utf-8')).hexdigest()[:8]
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(aiohttp.ClientError))
+@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(aiohttp.ClientError))
 async def download_media(media_id: str, token: str) -> bytes:
     headers = {"Authorization": f"Bearer {token}"}
     session = await get_aiohttp_session()
@@ -36,7 +36,7 @@ async def download_media(media_id: str, token: str) -> bytes:
             raise ValueError(f"Invalid media type: {content_type}")
         return await media_resp.read()
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type((APIConnectionError, RateLimitError)))
+@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type((APIConnectionError, RateLimitError)))
 async def generate_description(b64_image: str) -> str:
     client = await get_openai_client()
     response = await client.chat.completions.create(
@@ -51,7 +51,7 @@ async def generate_description(b64_image: str) -> str:
     )
     return response.choices[0].message.content
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type((APIConnectionError, RateLimitError)))
+@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type((APIConnectionError, RateLimitError)))
 async def generate_embeddings(description: str) -> list:
     client = await get_openai_client()
     embed_response = await client.embeddings.create(
@@ -60,7 +60,7 @@ async def generate_embeddings(description: str) -> list:
     )
     return embed_response.data[0].embedding
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
+@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(Exception))
 async def ensure_cosmos_skeleton(sticker_id: str):
     container = await get_cosmos_stickers_container()
     doc = StickerDocument(id=sticker_id)
@@ -69,7 +69,7 @@ async def ensure_cosmos_skeleton(sticker_id: str):
     except CosmosResourceExistsError:
         pass
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
+@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(Exception))
 async def conditional_patch_cosmos_field(sticker_id: str, field_path: str, value):
     container = await get_cosmos_stickers_container()
     await container.patch_item(
@@ -79,13 +79,13 @@ async def conditional_patch_cosmos_field(sticker_id: str, field_path: str, value
         filter_predicate=f"FROM c WHERE NOT IS_DEFINED(c.{field_path.strip('/')})"
     )
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
+@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(Exception))
 async def save_user_sticker_mapping(user_id: str, sticker_id: str):
     container = await get_cosmos_user_stickers_container()
     doc = UserStickerDocument(id=f"{user_id}_{sticker_id}", userId=user_id, stickerId=sticker_id)
     await container.upsert_item(doc.model_dump(by_alias=True))
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
+@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(Exception))
 async def save_to_redis(user_id: str, sticker_id: str, packed_embedding: bytes):
     redis_client = await get_redis_client()
     normalized_user = re.sub(r'[^a-zA-Z0-9]', '', user_id)
@@ -95,13 +95,13 @@ async def save_to_redis(user_id: str, sticker_id: str, packed_embedding: bytes):
         b"userId": normalized_user.encode('utf-8')
     })
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
+@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(Exception))
 async def mark_redis_rejected(sticker_id: str):
     redis_client = await get_redis_client()
     key = f"rejected:{sticker_id}"
     await redis_client.set(key, "1", ex=86400 * 7)
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(aiohttp.ClientError))
+@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(aiohttp.ClientError))
 
 async def process_sticker(payload_dict: dict):
     payload = StickerQueuePayload.model_validate(payload_dict)

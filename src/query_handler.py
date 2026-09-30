@@ -11,11 +11,11 @@ from src.clients import get_aiohttp_session, get_openai_client, get_redis_client
 from src.schemas import QueryQueuePayload
 from src.config import config
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(aiohttp.ClientError))
+@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(aiohttp.ClientError))
 
 
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type((APIConnectionError, RateLimitError)))
+@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type((APIConnectionError, RateLimitError)))
 async def get_query_embedding(query: str):
     client = await get_openai_client()
     embed_response = await client.embeddings.create(

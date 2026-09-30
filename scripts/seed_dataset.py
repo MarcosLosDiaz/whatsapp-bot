@@ -116,17 +116,19 @@ async def seed_stickers():
         
                 
         # Process them concurrently
+        sem = asyncio.Semaphore(10)
         async def process_single(s_id, s_data):
-            payload = {
-                "user_id": "+15551234567",
-                "sticker_id": s_id,
-                "media_id": f"media_{s_id}"
-            }
-            try:
-                await src.ingestion_worker.process_sticker(payload)
-                print(f"✅ {s_id} indexed!")
-            except Exception as e:
-                print(f"❌ Failed {s_id}: {type(e).__name__}")
+            async with sem:
+                payload = {
+                    "user_id": "+15551234567",
+                    "sticker_id": s_id,
+                    "media_id": f"media_{s_id}"
+                }
+                try:
+                    await src.ingestion_worker.process_sticker(payload)
+                    print(f"✅ {s_id} indexed!")
+                except Exception as e:
+                    print(f"❌ Failed {s_id}: {type(e).__name__}")
                 
         tasks = [process_single(s_id, s_data) for s_id, s_data in batch_stickers]
         await asyncio.gather(*tasks)
