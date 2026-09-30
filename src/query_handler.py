@@ -37,7 +37,6 @@ async def handle_query(payload_dict: dict):
         await ensure_index()
     
     # Strictly alphanumeric normalization to prevent NoSQL RediSearch injection
-    from src.ingestion_worker import hash_pii
     normalized_user = hash_pii(payload.user_id)
         
     try:

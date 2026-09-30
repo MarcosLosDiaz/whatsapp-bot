@@ -79,6 +79,22 @@ async def mark_redis_rejected(sticker_id: str):
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(aiohttp.ClientError))
 
+@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(aiohttp.ClientError))
+async def download_media(media_id: str, token: str) -> bytes:
+    headers = {"Authorization": f"Bearer {token}"}
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"https://graph.facebook.com/v18.0/{media_id}", headers=headers) as url_resp:
+            url_resp.raise_for_status()
+            data = await url_resp.json()
+            media_url = data.get('url')
+        
+        async with session.get(media_url, headers=headers) as media_resp:
+            media_resp.raise_for_status()
+            content_type = media_resp.headers.get('Content-Type', '')
+            if not content_type.startswith('image/'):
+                raise ValueError(f"Invalid media type: {content_type}")
+            return await media_resp.read()
+
 async def process_sticker(payload_dict: dict):
     payload = StickerQueuePayload.model_validate(payload_dict)
     user_hash = hash_pii(payload.user_id)

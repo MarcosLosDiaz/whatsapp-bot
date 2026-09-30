@@ -32,7 +32,7 @@ async def get_aiohttp_session() -> aiohttp.ClientSession:
     return AIOHTTP_SESSION
 
 async def get_queue_client(queue_name: str) -> QueueClient:
-    global QUEUE_CLIENTS, _queue_lock
+    global _queue_lock
     if _queue_lock is None:
         _queue_lock = asyncio.Lock()
     if queue_name not in QUEUE_CLIENTS:
