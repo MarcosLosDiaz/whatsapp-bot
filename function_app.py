@@ -16,7 +16,8 @@ try:
             from opentelemetry.sdk.trace.export import BatchSpanProcessor
             from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
             
-            provider = TracerProvider()
+            from opentelemetry.sdk.resources import Resource
+            provider = TracerProvider(resource=Resource.create({"service.name": "whatsapp-bot"}))
             provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=otel_endpoint)))
             trace.set_tracer_provider(provider)
             logging.info(f"OpenTelemetry configured: exporting to Jaeger at {otel_endpoint}")
