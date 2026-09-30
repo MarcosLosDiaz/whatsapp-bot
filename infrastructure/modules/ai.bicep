@@ -38,6 +38,7 @@ resource embeddings 'Microsoft.CognitiveServices/accounts/deployments@2023-05-01
   }
 }
 
+#disable-next-line BCP081
 resource bingSearch 'Microsoft.Bing/accounts@2020-06-10' = {
   name: '${resourcePrefix}-bing'
   location: 'global'
