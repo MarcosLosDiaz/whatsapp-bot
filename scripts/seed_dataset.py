@@ -113,18 +113,7 @@ async def seed_stickers():
             
         src.ingestion_worker.download_media = mock_download_media
         
-        # Save to local Blob Storage (Azurite) container
-        from azure.storage.blob.aio import BlobServiceClient
-        async with BlobServiceClient.from_connection_string(os.environ.get("AzureWebJobsStorage", "UseDevelopmentStorage=true")) as blob_service_client:
-            container_client = blob_service_client.get_container_client("local-image-mock")
-            try:
-                await container_client.create_container()
-            except Exception:
-                pass
-            
-            for s_id, s_data in batch_stickers:
-                blob_client = container_client.get_blob_client(f"{s_id}.webp")
-                await blob_client.upload_blob(s_data, overwrite=True)
+        
                 
         # Process them concurrently
         async def process_single(s_id, s_data):

@@ -15,6 +15,7 @@ class StickerDocument(BaseModel):
     id: str = Field(..., description="The sticker ID (Cosmos DB id and partition key)")
     description: Optional[str] = Field(None, description="The VLM generated description")
     embedding: Optional[List[float]] = Field(None, description="The vector embedding")
+    blob_url: Optional[str] = Field(None, description="Pointer to the raw image in Azure Blob Storage")
 
 class UserStickerDocument(BaseModel):
     id: str = Field(..., description="Unique mapping ID")

@@ -67,25 +67,33 @@ async def main():
             if result and result.get('debug'):
                 print(f"\n[🔍 DEBUG] Vector Search KNN Score: {result['debug']['score']}")
                 
-                # Fetch image from local Blob Storage (Azurite)
-                from azure.storage.blob.aio import BlobServiceClient
+                # Fetch image URL from Cosmos DB
+                from azure.cosmos.aio import CosmosClient
                 from src.config import config
                 import climage
                 import os
+                import aiohttp
                 
                 try:
-                    async with BlobServiceClient.from_connection_string(os.environ.get("AzureWebJobsStorage", "UseDevelopmentStorage=true")) as blob_service_client:
-                        blob_client = blob_service_client.get_blob_client(container="local-image-mock", blob=f"{result['sticker_id']}.webp")
-                        stream = await blob_client.download_blob()
-                        img_bytes = await stream.readall()
+                    async with CosmosClient(config.COSMOS_DB_URL, credential=config.COSMOS_DB_KEY) as client:
+                        db = client.get_database_client(config.COSMOS_DB_DATABASE)
+                        img_container = db.get_container_client("stickers")
+                        doc = await img_container.read_item(item=result['sticker_id'], partition_key=result['sticker_id'])
                         
-                        with open(f"/tmp/{result['sticker_id']}.webp", "wb") as f_img:
-                            f_img.write(img_bytes)
-                            
-                        out = climage.convert(f"/tmp/{result['sticker_id']}.webp", is_unicode=True, width=40)
-                        print("\n[Sticker Image]:\n")
-                        print(out)
-                        os.remove(f"/tmp/{result['sticker_id']}.webp")
+                        blob_url = doc.get('blob_url')
+                        if blob_url:
+                            async with aiohttp.ClientSession() as session:
+                                async with session.get(blob_url) as resp:
+                                    img_bytes = await resp.read()
+                                    with open(f"/tmp/{result['sticker_id']}.webp", "wb") as f_img:
+                                        f_img.write(img_bytes)
+                                        
+                            out = climage.convert(f"/tmp/{result['sticker_id']}.webp", is_unicode=True, width=40)
+                            print("\\n[Sticker Image]:\\n")
+                            print(out)
+                            os.remove(f"/tmp/{result['sticker_id']}.webp")
+                        else:
+                            print(f"[Warning] No blob_url found for {result['sticker_id']} in Cosmos DB.")
                 except Exception as e:
                     print(f"[Warning] Could not render sticker image locally: {e}")
 

@@ -149,7 +149,26 @@ async def process_sticker(payload_dict: dict):
                 
                 b64_image = base64.b64encode(media_bytes).decode('utf-8')
                 
+                # Upload to Azure Blob Storage and store pointer in Cosmos DB
+                from azure.storage.blob.aio import BlobServiceClient
+                import os
+                try:
+                    async with BlobServiceClient.from_connection_string(os.environ.get("AzureWebJobsStorage", "UseDevelopmentStorage=true")) as blob_service_client:
+                        container_client = blob_service_client.get_container_client("stickers")
+                        try:
+                            await container_client.create_container(public_access="blob")
+                        except Exception:
+                            pass
+                        
+                        blob_client = container_client.get_blob_client(f"{payload.sticker_id}.webp")
+                        await blob_client.upload_blob(media_bytes, overwrite=True)
+                        doc.blob_url = blob_client.url
+                        await conditional_patch_cosmos_field(payload.sticker_id, "/blob_url", blob_client.url)
+                except Exception as e:
+                    logging.warning(f"Failed to upload {payload.sticker_id} to blob storage: {e}")
+                
                 description = await generate_description(b64_image)
+
                 if not description:
                     return # VLM semantic permanent failure drop
                 
