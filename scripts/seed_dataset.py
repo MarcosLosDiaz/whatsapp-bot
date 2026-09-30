@@ -113,15 +113,18 @@ async def seed_stickers():
             
         src.ingestion_worker.download_media = mock_download_media
         
-        # Save to local_image_mock Cosmos container
-        from azure.cosmos.aio import CosmosClient
-        async with CosmosClient(config.COSMOS_DB_URL, credential=config.COSMOS_DB_KEY) as client:
-            db = client.get_database_client(config.COSMOS_DB_DATABASE)
-            img_container = db.get_container_client("local_image_mock")
+        # Save to local Blob Storage (Azurite) container
+        from azure.storage.blob.aio import BlobServiceClient
+        async with BlobServiceClient.from_connection_string(os.environ.get("AzureWebJobsStorage", "UseDevelopmentStorage=true")) as blob_service_client:
+            container_client = blob_service_client.get_container_client("local-image-mock")
+            try:
+                await container_client.create_container()
+            except Exception:
+                pass
             
             for s_id, s_data in batch_stickers:
-                b64 = base64.b64encode(s_data).decode('utf-8')
-                await img_container.upsert_item({"id": s_id, "data": b64})
+                blob_client = container_client.get_blob_client(f"{s_id}.webp")
+                await blob_client.upload_blob(s_data, overwrite=True)
                 
         # Process them concurrently
         async def process_single(s_id, s_data):
