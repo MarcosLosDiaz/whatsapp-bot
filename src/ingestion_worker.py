@@ -75,7 +75,7 @@ async def conditional_patch_cosmos_field(sticker_id: str, field_path: str, value
         item=sticker_id,
         partition_key=sticker_id,
         patch_operations=[{"op": "set", "path": field_path, "value": value}],
-        filter_predicate=f"FROM c WHERE NOT IS_DEFINED(c['{field_path.strip('/')}'])"
+        filter_predicate=f"FROM c WHERE NOT IS_DEFINED(c.{field_path.strip('/')})"
     )
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), retry=retry_if_exception_type(Exception))
