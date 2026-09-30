@@ -20,36 +20,7 @@ class DistributedLockError(Exception):
 def hash_pii(data: str) -> str:
     return hashlib.sha256((data + config.PII_SALT).encode('utf-8')).hexdigest()[:8]
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(aiohttp.ClientError))
-async def download_media(media_id: str, token: str) -> bytes:
-    headers = {"Authorization": f"Bearer {token}"}
-    session = await get_aiohttp_session()
-    async with session.get(f"https://graph.facebook.com/{config.META_GRAPH_VERSION}/{media_id}", headers=headers) as url_resp:
-        url_resp.raise_for_status()
-        data = await url_resp.json()
-        media_url = data.get('url')
-    
-    async with session.get(media_url, headers=headers) as media_resp:
-        media_resp.raise_for_status()
-        content_type = media_resp.headers.get('Content-Type', '')
-        if not content_type.startswith('image/'):
-            raise ValueError(f"Invalid media type: {content_type}")
-        return await media_resp.read()
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type((APIConnectionError, RateLimitError)))
-async def generate_description(b64_image: str) -> str:
-    client = await get_openai_client()
-    response = await client.chat.completions.create(
-        model=config.OPENAI_VLM_MODEL,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "Describe this meme sticker."},
-                {"type": "image_url", "image_url": {"url": f"data:image/webp;base64,{b64_image}"}}
-            ]
-        }]
-    )
-    return response.choices[0].message.content
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type((APIConnectionError, RateLimitError)))
 async def generate_embeddings(description: str) -> list:
@@ -172,7 +143,8 @@ async def process_sticker(payload_dict: dict):
                 except Exception as e:
                     logging.warning(f"Failed to upload {payload.sticker_id} to blob storage: {e}")
                 
-                description = await generate_description(b64_image)
+                from src.agent import run_vision_agent
+                description = await run_vision_agent(b64_image)
 
                 if not description:
                     return # VLM semantic permanent failure drop
