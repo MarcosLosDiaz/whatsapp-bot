@@ -88,7 +88,7 @@ async def main():
                                     with open(f"/tmp/{result['sticker_id']}.webp", "wb") as f_img:
                                         f_img.write(img_bytes)
                                         
-                            out = climage.convert(f"/tmp/{result['sticker_id']}.webp", is_unicode=True, width=40)
+                            out = climage.convert(f"/tmp/{result['sticker_id']}.webp", is_unicode=True, width=80)
                             print("\\n[Sticker Image]:\\n")
                             print(out)
                             os.remove(f"/tmp/{result['sticker_id']}.webp")
