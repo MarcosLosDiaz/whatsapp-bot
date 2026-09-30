@@ -51,13 +51,15 @@ async def handle_query(payload_dict: dict):
     redis_client = await get_redis_client()
     
     best_sticker_id = None
+    debug_info = None
     try:
         from redis.commands.search.query import Query
-        q = Query(f'(@userId:{{{normalized_user}}})=>[KNN 1 @vector $vec as score]').sort_by('score').return_fields('stickerId').dialect(2)
+        q = Query(f'(@userId:{{{normalized_user}}})=>[KNN 1 @vector $vec as score]').sort_by('score').return_fields('stickerId', 'score').dialect(2)
         res = await redis_client.ft('idx:stickers').search(q, query_params={'vec': packed_embedding})
         if res.docs:
             sticker_val = res.docs[0].stickerId
             best_sticker_id = sticker_val.decode('utf-8') if isinstance(sticker_val, bytes) else sticker_val
+            debug_info = {'score': getattr(res.docs[0], 'score', 'N/A')}
     except Exception:
         logging.error(f"RediSearch system error for user {user_hash}")
         await get_messaging_provider().send_text(payload.user_id, "I experienced a system error while searching. Please try again later.")
@@ -66,6 +68,7 @@ async def handle_query(payload_dict: dict):
     if best_sticker_id:
         logging.info(f"Sending matched sticker to user {user_hash}.")
         await get_messaging_provider().send_sticker(payload.user_id, best_sticker_id)
+        return {'sticker_id': best_sticker_id, 'debug': debug_info}
     else:
         logging.info(f"No matching sticker found. Sending text fallback to user {user_hash}.")
         await get_messaging_provider().send_text(payload.user_id, "Sorry, I couldn't find a matching sticker for your query.")

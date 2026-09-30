@@ -62,7 +62,9 @@ async def main():
                 "query": prompt
             }
             
-            await handle_query(payload)
+            result = await handle_query(payload)
+            if result and result.get('debug'):
+                print(f"\n[🔍 DEBUG] Vector Search KNN Score: {result['debug']['score']}")
         except KeyboardInterrupt:
             break
         except EOFError:
