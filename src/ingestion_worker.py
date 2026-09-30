@@ -71,24 +71,29 @@ async def ensure_cosmos_skeleton(sticker_id: str):
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(Exception))
 async def conditional_patch_cosmos_field(sticker_id: str, field_path: str, value):
+    from azure.cosmos.exceptions import CosmosHttpResponseError
     container = await get_cosmos_stickers_container()
-    await container.patch_item(
-        item=sticker_id,
-        partition_key=sticker_id,
-        patch_operations=[{"op": "set", "path": field_path, "value": value}],
-        filter_predicate=f"FROM c WHERE NOT IS_DEFINED(c.{field_path.strip('/')})"
-    )
-
-@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(Exception))
+    try:
+        await container.patch_item(
+            item=sticker_id,
+            partition_key=sticker_id,
+            patch_operations=[{"op": "set", "path": field_path, "value": value}],
+            filter_predicate=f"FROM c WHERE NOT IS_DEFINED(c.{field_path.strip('/')})"
+        )
+    except CosmosHttpResponseError as e:
+        if e.status_code == 412:
+            return
+        raise
 async def save_user_sticker_mapping(user_id: str, sticker_id: str):
     container = await get_cosmos_user_stickers_container()
-    doc = UserStickerDocument(id=f"{user_id}_{sticker_id}", userId=user_id, stickerId=sticker_id)
+    hashed = hash_pii(user_id)
+    doc = UserStickerDocument(id=f"{hashed}_{sticker_id}", userId=hashed, stickerId=sticker_id)
     await container.upsert_item(doc.model_dump(by_alias=True))
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(Exception))
 async def save_to_redis(user_id: str, sticker_id: str, packed_embedding: bytes):
     redis_client = await get_redis_client()
-    normalized_user = re.sub(r'[^a-zA-Z0-9]', '', user_id)
+    normalized_user = hash_pii(user_id)
     await redis_client.hset(f"vector:{normalized_user}:{sticker_id}", mapping={
         b"vector": packed_embedding,
         b"stickerId": sticker_id.encode('utf-8'),
@@ -112,7 +117,7 @@ async def process_sticker(payload_dict: dict):
         await ensure_index()
         
     redis_client = await get_redis_client()
-    normalized_user = re.sub(r'[^a-zA-Z0-9]', '', payload.user_id)
+    normalized_user = hash_pii(payload.user_id)
     
     if await redis_client.exists(f"rejected:{payload.sticker_id}"):
         await get_messaging_provider().send_text(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
@@ -191,7 +196,9 @@ async def process_sticker(payload_dict: dict):
         await save_user_sticker_mapping(payload.user_id, payload.sticker_id)
         
         packed_embedding = struct.pack(f'<{len(doc.embedding)}f', *doc.embedding)
+        packed_embedding = struct.pack(f'<{len(doc.embedding)}f', *doc.embedding)
         await save_to_redis(payload.user_id, payload.sticker_id, packed_embedding)
+        await get_messaging_provider().send_text(payload.user_id, "Sticker saved successfully!")
     finally:
         script = """
         if redis.call("get",KEYS[1]) == ARGV[1]

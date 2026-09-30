@@ -40,9 +40,9 @@ async def main(req: func.HttpRequest) -> func.HttpResponse:
         try:
             req_body = req.get_json()
             payload = MetaWebhookPayload.model_validate(req_body)
-        except Exception:
-            # Do not log 'e' to prevent Pydantic ValidationError from dumping raw JSON payloads/PII
-            logging.error(f"Invalid Payload received")
+        except Exception as e:
+            logging.error(f"Invalid Payload received. Routing to DLQ.")
+            await send_to_queue("invalid-webhooks", req.get_body().decode('utf-8'))
             return func.HttpResponse("OK", status_code=200)
             
         for entry in payload.entry:

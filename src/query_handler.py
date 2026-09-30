@@ -37,7 +37,8 @@ async def handle_query(payload_dict: dict):
         await ensure_index()
     
     # Strictly alphanumeric normalization to prevent NoSQL RediSearch injection
-    normalized_user = re.sub(r'[^a-zA-Z0-9]', '', payload.user_id)
+    from src.ingestion_worker import hash_pii
+    normalized_user = hash_pii(payload.user_id)
         
     try:
         query_embedding = await get_query_embedding(payload.query)
