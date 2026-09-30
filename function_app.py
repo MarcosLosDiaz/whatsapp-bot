@@ -1,16 +1,36 @@
 import azure.functions as func
-from azure.monitor.opentelemetry import configure_azure_monitor
 import json
 import logging
 import os
 
+DEPLOY_ENV = os.environ.get("DEPLOY_ENV", "local")
+
+# Telemetry: Jaeger (local) vs App Insights (azure)
 try:
-    if os.environ.get('APPLICATIONINSIGHTS_CONNECTION_STRING'):
-        configure_azure_monitor()
+    if DEPLOY_ENV == "local":
+        # Local: export traces to Jaeger via OTLP
+        otel_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+        if otel_endpoint:
+            from opentelemetry import trace
+            from opentelemetry.sdk.trace import TracerProvider
+            from opentelemetry.sdk.trace.export import BatchSpanProcessor
+            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+            
+            provider = TracerProvider()
+            provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=otel_endpoint)))
+            trace.set_tracer_provider(provider)
+            logging.info(f"OpenTelemetry configured: exporting to Jaeger at {otel_endpoint}")
+        else:
+            logging.info("OTEL_EXPORTER_OTLP_ENDPOINT not set. Telemetry disabled for local dev.")
     else:
-        logging.warning("APPLICATIONINSIGHTS_CONNECTION_STRING is missing. Telemetry is disabled.")
+        # Azure: export to Application Insights
+        if os.environ.get('APPLICATIONINSIGHTS_CONNECTION_STRING'):
+            from azure.monitor.opentelemetry import configure_azure_monitor
+            configure_azure_monitor()
+        else:
+            logging.warning("APPLICATIONINSIGHTS_CONNECTION_STRING is missing. Telemetry is disabled.")
 except Exception as e:
-    logging.warning(f"Failed to configure Azure Monitor: {type(e).__name__}")
+    logging.warning(f"Failed to configure telemetry: {type(e).__name__}")
 
 from src import webhook_receiver, ingestion_worker, query_handler
 from src.ingestion_worker import DistributedLockError

@@ -3,6 +3,7 @@ param functionAppPrincipalId string
 param storageAccountName string
 param cosmosDbAccountName string
 param openAiAccountName string
+param appConfigName string
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2022-09-01' existing = {
   name: storageAccountName
@@ -14,6 +15,10 @@ resource cosmosDb 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' existing = 
 
 resource openAi 'Microsoft.CognitiveServices/accounts@2023-05-01' existing = {
   name: openAiAccountName
+}
+
+resource appConfig 'Microsoft.AppConfiguration/configurationStores@2023-03-01' existing = {
+  name: appConfigName
 }
 
 // Storage Blob Data Contributor
@@ -49,6 +54,17 @@ resource openAiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
+// App Configuration Data Reader
+resource appConfigRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(appConfig.id, functionAppPrincipalId, '516239f1-63e1-4d78-a4de-a74fb236a071')
+  scope: appConfig
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '516239f1-63e1-4d78-a4de-a74fb236a071')
+    principalId: functionAppPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // Cosmos DB Built-in Data Contributor (00000000-0000-0000-0000-000000000002) is assigned differently, typically via sqlRoleAssignments.
 resource sqlRoleAssignment 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2023-04-15' = {
   parent: cosmosDb
@@ -59,3 +75,4 @@ resource sqlRoleAssignment 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignm
     scope: cosmosDb.id
   }
 }
+
