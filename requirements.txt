@@ -12,3 +12,8 @@ aiohttp==3.9.5
 azure-cosmos>=4.6.0
 redis>=5.0.0
 pydantic>=2.0.0
+azure-appconfiguration-provider
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-exporter-otlp
+azure-identity

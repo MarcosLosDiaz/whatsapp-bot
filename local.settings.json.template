@@ -1,0 +1,23 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "DEPLOY_ENV": "local",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "COSMOS_DB_URL": "http://localhost:8081",
+    "COSMOS_DB_KEY": "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==",
+    "COSMOS_DB_DATABASE": "WhatsAppBot",
+    "REDIS_URL": "redis://localhost:6379",
+    "REDIS_VECTOR_DIMENSIONS": "1536",
+    "OPENAI_API_KEY": "<your-real-openai-key>",
+    "OPENAI_VLM_MODEL": "gpt-4o-mini",
+    "OPENAI_EMBEDDING_MODEL": "text-embedding-3-small",
+    "META_VERIFY_TOKEN": "local_test_token",
+    "META_APP_SECRET": "local_test_secret",
+    "META_GRAPH_TOKEN": "local_test_token",
+    "META_PHONE_ID": "000000000000",
+    "META_GRAPH_VERSION": "v20.0",
+    "PII_SALT": "local_dev_salt_change_in_prod",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"
+  }
+}
