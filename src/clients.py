@@ -37,11 +37,20 @@ async def get_queue_client(queue_name: str) -> QueueClient:
     if queue_name not in QUEUE_CLIENTS:
         async with _queue_lock:
             if queue_name not in QUEUE_CLIENTS:
-                QUEUE_CLIENTS[queue_name] = QueueClient.from_connection_string(
-                    config.AZURE_WEBJOBS_STORAGE, 
-                    queue_name,
-                    message_encode_policy=TextBase64EncodePolicy()
-                )
+                if config.AZURE_WEBJOBS_STORAGE:
+                    QUEUE_CLIENTS[queue_name] = QueueClient.from_connection_string(
+                        config.AZURE_WEBJOBS_STORAGE, 
+                        queue_name,
+                        message_encode_policy=TextBase64EncodePolicy()
+                    )
+                else:
+                    account_url = f"https://{config.AZURE_WEBJOBS_STORAGE_ACCOUNT}.queue.core.windows.net"
+                    QUEUE_CLIENTS[queue_name] = QueueClient(
+                        account_url=account_url, 
+                        queue_name=queue_name, 
+                        credential=DefaultAzureCredential(), 
+                        message_encode_policy=TextBase64EncodePolicy()
+                    )
     return QUEUE_CLIENTS[queue_name]
 
 async def get_openai_client():

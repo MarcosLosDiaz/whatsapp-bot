@@ -35,7 +35,8 @@ FUNC_NAME=$(az functionapp list -g "${PREFIX}-rg" --query "[0].name" -o tsv)
 az functionapp deployment source config-zip \
     --resource-group "${PREFIX}-rg" \
     --name "$FUNC_NAME" \
-    --src deploy.zip
+    --src deploy.zip \
+    --build-remote true
 
 echo "========================================="
 echo "Deployment Complete! Your webhook URL is:"

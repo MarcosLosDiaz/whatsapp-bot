@@ -61,8 +61,12 @@ resource functionApp 'Microsoft.Web/sites@2022-03-01' = {
           value: 'python'
         }
         {
-          name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
-          value: appInsights.properties.InstrumentationKey
+          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+          value: appInsights.properties.ConnectionString
+        }
+        {
+          name: 'DEPLOY_ENV'
+          value: 'production'
         }
         {
           name: 'AZURE_APPCONFIG_ENDPOINT'

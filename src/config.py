@@ -23,9 +23,11 @@ def _load_config_store() -> dict:
             endpoint=endpoint,
             credential=credential,
             keyvault_credential=credential,
-            label_filter=DEPLOY_ENV,
+            label_filter=None,  # deploy_all.sh pushes without labels
         )
-        return dict(config_store)
+        merged = dict(os.environ)
+        merged.update(dict(config_store))
+        return merged
     except Exception as e:
         logging.error(f"Failed to load App Configuration: {type(e).__name__}. Falling back to os.environ.")
         return dict(os.environ)
@@ -62,7 +64,7 @@ class Config:
         if not self.META_APP_SECRET: missing.append("META_APP_SECRET")
         if not self.META_GRAPH_TOKEN: missing.append("META_GRAPH_TOKEN")
         if not self.META_PHONE_ID: missing.append("META_PHONE_ID")
-        if not self.OPENAI_API_KEY: missing.append("OPENAI_APIKEY")
+        if not self.OPENAI_API_KEY and not self.AZURE_OPENAI_ENDPOINT: missing.append("OPENAI_API_KEY or AZURE_OPENAI_ENDPOINT")
         if not self.COSMOS_DB_URL: missing.append("COSMOS_DB_URL")
         # COSMOS_DB_KEY is optional (falls back to Managed Identity)
         if not self.AZURE_WEBJOBS_STORAGE_ACCOUNT and DEPLOY_ENV not in ["local", "local_terminal"]: missing.append("AzureWebJobsStorage__accountName")
