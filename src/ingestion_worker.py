@@ -60,11 +60,6 @@ async def save_user_sticker_mapping(user_id: str, sticker_id: str):
     doc = UserStickerDocument(id=f"{hashed}_{sticker_id}", userId=hashed, stickerId=sticker_id)
     await container.upsert_item(doc.model_dump(by_alias=True))
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(Exception))
-
-@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(Exception))
-
-@retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(aiohttp.ClientError))
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(aiohttp.ClientError))
 async def download_media(media_id: str, token: str) -> bytes:

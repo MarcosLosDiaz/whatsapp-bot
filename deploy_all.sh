@@ -14,13 +14,33 @@ az deployment sub create \
     --template-file infrastructure/main.bicep \
     --parameters resourcePrefix=$PREFIX
 
-# 2. Securely push OpenAI Secret directly from the host environment
+# 2. Securely push secrets directly from the host environment
+APPCONFIG_NAME="${PREFIX}-appconfig"
+
 if [ -z "$OPENAI_APIKEY" ]; then
     echo "Warning: OPENAI_APIKEY environment variable is not set! Skipping."
 else
     echo "Uploading OpenAI Key to Azure App Configuration..."
-    APPCONFIG_NAME="${PREFIX}-appconfig"
     az appconfig kv set -n $APPCONFIG_NAME --key "OPENAI_APIKEY" --value "$OPENAI_APIKEY" --yes
+fi
+
+# Meta / WhatsApp secrets (required for the Function App to boot)
+if [ -z "$META_APP_SECRET" ]; then
+    echo "Warning: META_APP_SECRET not set. You must set it later via: az appconfig kv set -n $APPCONFIG_NAME --key META_APP_SECRET --value <secret> --yes"
+else
+    az appconfig kv set -n $APPCONFIG_NAME --key "META_APP_SECRET" --value "$META_APP_SECRET" --yes
+fi
+
+if [ -z "$META_GRAPH_TOKEN" ]; then
+    echo "Warning: META_GRAPH_TOKEN not set. You must set it later via: az appconfig kv set -n $APPCONFIG_NAME --key META_GRAPH_TOKEN --value <token> --yes"
+else
+    az appconfig kv set -n $APPCONFIG_NAME --key "META_GRAPH_TOKEN" --value "$META_GRAPH_TOKEN" --yes
+fi
+
+if [ -z "$META_PHONE_ID" ]; then
+    echo "Warning: META_PHONE_ID not set. You must set it later via: az appconfig kv set -n $APPCONFIG_NAME --key META_PHONE_ID --value <id> --yes"
+else
+    az appconfig kv set -n $APPCONFIG_NAME --key "META_PHONE_ID" --value "$META_PHONE_ID" --yes
 fi
 
 # 3. Zip and Deploy the Code
