@@ -43,6 +43,17 @@ resource queueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
+// Storage Table Data Contributor (required for Functions host internal locks)
+resource tableRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, functionAppPrincipalId, '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3')
+  scope: storageAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3')
+    principalId: functionAppPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // Cognitive Services OpenAI User
 resource openAiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(openAi.id, functionAppPrincipalId, '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd')
