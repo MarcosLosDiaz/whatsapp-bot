@@ -29,6 +29,7 @@ resource gpt4oMini 'Microsoft.CognitiveServices/accounts/deployments@2023-05-01'
 resource embeddings 'Microsoft.CognitiveServices/accounts/deployments@2023-05-01' = {
   parent: openAi
   name: 'text-embedding-3-small'
+  dependsOn: [gpt4oMini]
   properties: {
     model: {
       format: 'OpenAI'

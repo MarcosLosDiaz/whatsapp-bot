@@ -3,7 +3,6 @@ import aiohttp
 from azure.storage.queue.aio import QueueClient
 from azure.storage.queue import TextBase64EncodePolicy
 from azure.cosmos.aio import CosmosClient
-from azure.identity.aio import DefaultAzureCredential
 from openai.lib.azure import AsyncAzureOpenAI
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from src.config import config
