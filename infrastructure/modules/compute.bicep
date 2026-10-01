@@ -10,7 +10,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2022-09-01' existing 
   name: storageAccountName
 }
 
-resource redis 'Microsoft.Cache/redisEnterprise@2023-11-01' existing = {
+resource redis 'Microsoft.Cache/redis@2023-08-01' existing = {
   name: redisName
 }
 
@@ -73,7 +73,7 @@ resource functionApp 'Microsoft.Web/sites@2022-03-01' = {
         }
         {
           name: 'REDIS_URL'
-          value: 'rediss://default:${redis.listKeys().primaryKey}@${redis.properties.hostName}:10000'
+          value: 'rediss://:${redis.listKeys().primaryKey}@${redis.properties.hostName}:6380'
         }
       ]
     }
