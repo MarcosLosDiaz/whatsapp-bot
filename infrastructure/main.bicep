@@ -36,14 +36,6 @@ module database 'modules/database.bicep' = {
   }
 }
 
-module cache 'modules/cache.bicep' = {
-  scope: rg
-  name: 'cacheDeploy'
-  params: {
-    location: location
-    resourcePrefix: resourcePrefix
-  }
-}
 
 module appconfig 'modules/appconfig.bicep' = {
   scope: rg
@@ -63,7 +55,6 @@ module compute 'modules/compute.bicep' = {
     storageAccountName: storage.outputs.storageAccountName
     appConfigEndpoint: appconfig.outputs.appConfigEndpoint
     cosmosDbEndpoint: database.outputs.cosmosDbEndpoint
-    redisName: cache.outputs.redisName
     openAiEndpoint: ai.outputs.openAiEndpoint
   }
 }

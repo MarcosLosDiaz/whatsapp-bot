@@ -51,12 +51,6 @@ class Config:
         self.COSMOS_DB_KEY = store.get("COSMOS_DB_KEY")
         self.COSMOS_DB_DATABASE = store.get("COSMOS_DB_DATABASE", "WhatsAppBot")
 
-        self.REDIS_HOST = store.get("REDIS_HOST")
-        self.REDIS_PORT = store.get("REDIS_PORT", "6379")
-        self.REDIS_URL = store.get("REDIS_URL")
-        self.REDIS_MAX_CONNECTIONS = int(store.get("REDIS_MAX_CONNECTIONS", "10"))
-        self.REDIS_VECTOR_DIMENSIONS = int(store.get("REDIS_VECTOR_DIMENSIONS", "1536"))
-
         self.AZURE_WEBJOBS_STORAGE = store.get("AzureWebJobsStorage")
         self.AZURE_WEBJOBS_STORAGE_ACCOUNT = store.get("AzureWebJobsStorage__accountName")
         self.AZURE_OPENAI_ENDPOINT = store.get("AZURE_OPENAI_ENDPOINT")
@@ -71,8 +65,7 @@ class Config:
         if not self.OPENAI_API_KEY: missing.append("OPENAI_APIKEY")
         if not self.COSMOS_DB_URL: missing.append("COSMOS_DB_URL")
         # COSMOS_DB_KEY is optional (falls back to Managed Identity)
-        if not self.REDIS_URL and not self.REDIS_HOST: missing.append("REDIS_URL or REDIS_HOST")
-        if not self.AZURE_WEBJOBS_STORAGE_ACCOUNT and DEPLOY_ENV != "local": missing.append("AzureWebJobsStorage__accountName")
+        if not self.AZURE_WEBJOBS_STORAGE_ACCOUNT and DEPLOY_ENV not in ["local", "local_terminal"]: missing.append("AzureWebJobsStorage__accountName")
 
         if missing:
             logging.critical(f"Missing required environment variables: {', '.join(missing)}")

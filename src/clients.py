@@ -4,7 +4,6 @@ from azure.storage.queue.aio import QueueClient
 from azure.storage.queue import TextBase64EncodePolicy
 from azure.cosmos.aio import CosmosClient
 from azure.identity.aio import DefaultAzureCredential
-import redis.asyncio as redis
 from openai.lib.azure import AsyncAzureOpenAI
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from src.config import config
@@ -14,13 +13,11 @@ COSMOS_CLIENT = None
 COSMOS_STICKERS_CONTAINER = None
 COSMOS_USER_STICKERS_CONTAINER = None
 QUEUE_CLIENTS = {}
-REDIS_POOL = None
 OPENAI_CLIENT = None
 
 _aiohttp_lock = None
 _cosmos_lock = None
 _queue_lock = None
-_redis_lock = None
 _openai_lock = None
 
 async def get_aiohttp_session() -> aiohttp.ClientSession:
@@ -90,15 +87,3 @@ async def get_cosmos_user_stickers_container():
                 COSMOS_USER_STICKERS_CONTAINER = db.get_container_client("user_stickers")
     return COSMOS_USER_STICKERS_CONTAINER
 
-async def get_redis_client() -> redis.Redis:
-    global REDIS_POOL, _redis_lock
-    if _redis_lock is None:
-        _redis_lock = asyncio.Lock()
-    if REDIS_POOL is None:
-        async with _redis_lock:
-            if REDIS_POOL is None:
-                redis_url = config.REDIS_URL
-                if not redis_url:
-                    redis_url = f"redis://{config.REDIS_HOST}:{config.REDIS_PORT}"
-                REDIS_POOL = redis.ConnectionPool.from_url(redis_url, max_connections=config.REDIS_MAX_CONNECTIONS)
-    return redis.Redis(connection_pool=REDIS_POOL)

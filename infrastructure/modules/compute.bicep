@@ -4,16 +4,12 @@ param resourcePrefix string
 param storageAccountName string
 param appConfigEndpoint string
 param cosmosDbEndpoint string
-param redisName string
 param openAiEndpoint string
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2022-09-01' existing = {
   name: storageAccountName
 }
 
-resource redis 'Microsoft.Cache/redis@2023-08-01' existing = {
-  name: redisName
-}
 
 resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   name: '${resourcePrefix}-appinsights'
@@ -76,10 +72,7 @@ resource functionApp 'Microsoft.Web/sites@2022-03-01' = {
           name: 'COSMOS_DB_URL'
           value: cosmosDbEndpoint
         }
-        {
-          name: 'REDIS_URL'
-          value: 'rediss://:${redis.listKeys().primaryKey}@${redis.properties.hostName}:6380'
-        }
+
       ]
     }
   }

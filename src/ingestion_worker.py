@@ -9,8 +9,7 @@ import aiohttp
 from azure.cosmos.exceptions import CosmosResourceNotFoundError, CosmosResourceExistsError
 from openai import APIConnectionError, RateLimitError, BadRequestError
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
-from src.redis_client import ensure_index, INDEX_CREATED
-from src.clients import get_aiohttp_session, get_openai_client, get_cosmos_stickers_container, get_cosmos_user_stickers_container, get_redis_client
+from src.clients import get_aiohttp_session, get_openai_client, get_cosmos_stickers_container, get_cosmos_user_stickers_container
 from src.schemas import StickerQueuePayload, StickerDocument, UserStickerDocument
 from src.config import config
 
@@ -62,20 +61,8 @@ async def save_user_sticker_mapping(user_id: str, sticker_id: str):
     await container.upsert_item(doc.model_dump(by_alias=True))
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(Exception))
-async def save_to_redis(user_id: str, sticker_id: str, packed_embedding: bytes):
-    redis_client = await get_redis_client()
-    normalized_user = hash_pii(user_id)
-    await redis_client.hset(f"vector:{normalized_user}:{sticker_id}", mapping={
-        b"vector": packed_embedding,
-        b"stickerId": sticker_id.encode('utf-8'),
-        b"userId": normalized_user.encode('utf-8')
-    })
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(Exception))
-async def mark_redis_rejected(sticker_id: str):
-    redis_client = await get_redis_client()
-    key = f"rejected:{sticker_id}"
-    await redis_client.set(key, "1", ex=86400 * 7)
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(aiohttp.ClientError))
 
@@ -100,24 +87,6 @@ async def process_sticker(payload_dict: dict):
     user_hash = hash_pii(payload.user_id)
     logging.info(f"Processing sticker {payload.sticker_id} for user {user_hash}")
     
-    if not INDEX_CREATED:
-        await ensure_index()
-        
-    redis_client = await get_redis_client()
-    normalized_user = hash_pii(payload.user_id)
-    
-    if await redis_client.exists(f"rejected:{payload.sticker_id}"):
-        await get_messaging_provider().send_text(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
-        return
-        
-    if await redis_client.exists(f"vector:{normalized_user}:{payload.sticker_id}"):
-        return
-        
-    lock_key = f"lock:ingest:{payload.sticker_id}"
-    lock_val = str(uuid.uuid4())
-    if not await redis_client.set(lock_key, lock_val, nx=True, ex=300):
-        raise DistributedLockError("Global lock held")
-    
     try:
         await ensure_cosmos_skeleton(payload.sticker_id)
         
@@ -127,7 +96,7 @@ async def process_sticker(payload_dict: dict):
 
         if doc.description == "[REJECTED]":
             await get_messaging_provider().send_text(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
-            await mark_redis_rejected(payload.sticker_id)
+            
             return
 
         try:
@@ -178,22 +147,12 @@ async def process_sticker(payload_dict: dict):
             doc.description = "[REJECTED]"
             await conditional_patch_cosmos_field(payload.sticker_id, "/description", "[REJECTED]")
             await get_messaging_provider().send_text(payload.user_id, "I couldn't process your sticker due to a policy restriction.")
-            await mark_redis_rejected(payload.sticker_id)
+            
             return
             
         await save_user_sticker_mapping(payload.user_id, payload.sticker_id)
         
-        packed_embedding = struct.pack(f'<{len(doc.embedding)}f', *doc.embedding)
-        packed_embedding = struct.pack(f'<{len(doc.embedding)}f', *doc.embedding)
-        await save_to_redis(payload.user_id, payload.sticker_id, packed_embedding)
+
         await get_messaging_provider().send_text(payload.user_id, "Sticker saved successfully!")
     finally:
-        script = """
-        if redis.call("get",KEYS[1]) == ARGV[1]
-        then
-            return redis.call("del",KEYS[1])
-        else
-            return 0
-        end
-        """
-        await redis_client.eval(script, 1, lock_key, lock_val)
+        pass
