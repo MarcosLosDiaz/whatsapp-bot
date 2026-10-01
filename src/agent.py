@@ -39,8 +39,9 @@ async def run_vision_agent(b64_image: str) -> str:
         ]}
     ]
     
+    logging.info(f"VLM agent starting: model={config.OPENAI_VLM_MODEL} image_size={len(b64_image)}")
     max_iterations = 3
-    for _ in range(max_iterations):
+    for iteration in range(max_iterations):
         response = await client.chat.completions.create(
             model=config.OPENAI_VLM_MODEL,
             messages=messages,
@@ -48,18 +49,24 @@ async def run_vision_agent(b64_image: str) -> str:
             tool_choice="auto"
         )
         
+        usage = response.usage
+        logging.info(f"VLM iteration={iteration+1}: prompt_tokens={usage.prompt_tokens if usage else '?'} completion_tokens={usage.completion_tokens if usage else '?'} finish_reason={response.choices[0].finish_reason}")
+        
         msg = response.choices[0].message
         messages.append(msg) # Append the assistant message exactly as-is
         
         if not msg.tool_calls:
             # Done! Agent didn't request any more tools
-            return msg.content or ""
+            description = msg.content or ""
+            logging.info(f"VLM agent completed: iterations={iteration+1} description_len={len(description)}")
+            return description
             
         # Execute tools
         for tool_call in msg.tool_calls:
             if tool_call.function.name == "search_web":
                 args = json.loads(tool_call.function.arguments)
                 query = args.get("query", "")
+                logging.info(f"VLM agent tool_call: search_web query={query[:100]}")
                 
                 search_provider = get_search_provider()
                 search_result = await search_provider.search(query)
@@ -72,6 +79,7 @@ async def run_vision_agent(b64_image: str) -> str:
                 })
                 
     # If we hit max iterations, force a final generation without tools
+    logging.warning(f"VLM agent hit max iterations ({max_iterations}), forcing final generation")
     final_response = await client.chat.completions.create(
         model=config.OPENAI_VLM_MODEL,
         messages=messages,

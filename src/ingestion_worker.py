@@ -24,10 +24,13 @@ def hash_pii(data: str) -> str:
 @retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type((APIConnectionError, RateLimitError)))
 async def generate_embeddings(description: str) -> list:
     client = await get_openai_client()
+    logging.info(f"Generating embedding: model={config.OPENAI_EMBEDDING_MODEL} input_len={len(description)}")
     embed_response = await client.embeddings.create(
         model=config.OPENAI_EMBEDDING_MODEL,
         input=description
     )
+    usage = embed_response.usage
+    logging.info(f"Embedding generated: dimensions={len(embed_response.data[0].embedding)} tokens={usage.total_tokens if usage else '?'}")
     return embed_response.data[0].embedding
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(Exception))
@@ -64,18 +67,27 @@ async def save_user_sticker_mapping(user_id: str, sticker_id: str):
 @retry(wait=wait_exponential(multiplier=1, min=2, max=60), stop=stop_after_attempt(10), retry=retry_if_exception_type(aiohttp.ClientError))
 async def download_media(media_id: str, token: str) -> bytes:
     headers = {"Authorization": f"Bearer {token}"}
+    logging.info(f"Downloading media: media_id={media_id}")
     async with aiohttp.ClientSession() as session:
         async with session.get(f"https://graph.facebook.com/v18.0/{media_id}", headers=headers) as url_resp:
+            if url_resp.status >= 400:
+                body = await url_resp.text()
+                logging.error(f"Meta media URL fetch failed: media_id={media_id} status={url_resp.status} response={body[:300]}")
             url_resp.raise_for_status()
             data = await url_resp.json()
             media_url = data.get('url')
         
         async with session.get(media_url, headers=headers) as media_resp:
+            if media_resp.status >= 400:
+                logging.error(f"Meta media download failed: media_id={media_id} status={media_resp.status}")
             media_resp.raise_for_status()
             content_type = media_resp.headers.get('Content-Type', '')
             if not content_type.startswith('image/'):
+                logging.warning(f"Invalid media content type: media_id={media_id} content_type={content_type}")
                 raise ValueError(f"Invalid media type: {content_type}")
-            return await media_resp.read()
+            media_bytes = await media_resp.read()
+            logging.info(f"Media downloaded: media_id={media_id} content_type={content_type} size={len(media_bytes)} bytes")
+            return media_bytes
 
 async def process_sticker(payload_dict: dict):
     payload = StickerQueuePayload.model_validate(payload_dict)

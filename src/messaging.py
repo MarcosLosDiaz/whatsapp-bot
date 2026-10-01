@@ -18,6 +18,11 @@ class MetaMessagingProvider(MessagingProvider):
         }
         session = await get_aiohttp_session()
         async with session.post(url, headers=headers, json=payload) as resp:
+            if resp.status >= 400:
+                body = await resp.text()
+                logging.error(f"Meta API error: status={resp.status} type={payload.get('type')} response={body[:500]}")
+            else:
+                logging.info(f"Meta API success: status={resp.status} type={payload.get('type')} to={payload.get('to', 'unknown')[:8]}...")
             resp.raise_for_status()
 
     async def send_text(self, user_id: str, text: str):
