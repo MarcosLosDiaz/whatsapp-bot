@@ -50,3 +50,5 @@ resource bingSearch 'Microsoft.Bing/accounts@2020-06-10' = {
 
 output openAiAccountName string = openAi.name
 output bingSearchName string = bingSearch.name
+
+output openAiEndpoint string = openAi.properties.endpoint

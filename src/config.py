@@ -58,6 +58,8 @@ class Config:
         self.REDIS_VECTOR_DIMENSIONS = int(store.get("REDIS_VECTOR_DIMENSIONS", "1536"))
 
         self.AZURE_WEBJOBS_STORAGE = store.get("AzureWebJobsStorage")
+        self.AZURE_WEBJOBS_STORAGE_ACCOUNT = store.get("AzureWebJobsStorage__accountName")
+        self.AZURE_OPENAI_ENDPOINT = store.get("AZURE_OPENAI_ENDPOINT")
         
         self.PII_SALT = store.get("PII_SALT", "fallback_local_salt_12345")
 
@@ -70,7 +72,7 @@ class Config:
         if not self.COSMOS_DB_URL: missing.append("COSMOS_DB_URL")
         # COSMOS_DB_KEY is optional (falls back to Managed Identity)
         if not self.REDIS_URL and not self.REDIS_HOST: missing.append("REDIS_URL or REDIS_HOST")
-        if not self.AZURE_WEBJOBS_STORAGE: missing.append("AzureWebJobsStorage")
+        if not self.AZURE_WEBJOBS_STORAGE_ACCOUNT and DEPLOY_ENV != "local": missing.append("AzureWebJobsStorage__accountName")
 
         if missing:
             logging.critical(f"Missing required environment variables: {', '.join(missing)}")

@@ -64,6 +64,7 @@ module compute 'modules/compute.bicep' = {
     appConfigEndpoint: appconfig.outputs.appConfigEndpoint
     cosmosDbEndpoint: database.outputs.cosmosDbEndpoint
     redisName: cache.outputs.redisName
+    openAiEndpoint: ai.outputs.openAiEndpoint
   }
 }
 

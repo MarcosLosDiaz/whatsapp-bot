@@ -5,7 +5,8 @@ from azure.storage.queue import TextBase64EncodePolicy
 from azure.cosmos.aio import CosmosClient
 from azure.identity.aio import DefaultAzureCredential
 import redis.asyncio as redis
-from openai import AsyncOpenAI
+from openai.lib.azure import AsyncAzureOpenAI
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from src.config import config
 
 AIOHTTP_SESSION = None
@@ -46,14 +47,19 @@ async def get_queue_client(queue_name: str) -> QueueClient:
                 )
     return QUEUE_CLIENTS[queue_name]
 
-async def get_openai_client() -> AsyncOpenAI:
+async def get_openai_client():
     global OPENAI_CLIENT, _openai_lock
     if _openai_lock is None:
         _openai_lock = asyncio.Lock()
     if OPENAI_CLIENT is None:
         async with _openai_lock:
             if OPENAI_CLIENT is None:
-                OPENAI_CLIENT = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+                if config.AZURE_OPENAI_ENDPOINT:
+                    token_provider = get_bearer_token_provider(DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default")
+                    OPENAI_CLIENT = AsyncAzureOpenAI(azure_endpoint=config.AZURE_OPENAI_ENDPOINT, azure_ad_token_provider=token_provider, api_version="2024-02-01")
+                else:
+                    from openai import AsyncOpenAI
+                    OPENAI_CLIENT = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
     return OPENAI_CLIENT
 
 async def get_cosmos_stickers_container():

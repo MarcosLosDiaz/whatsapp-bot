@@ -5,6 +5,7 @@ param storageAccountName string
 param appConfigEndpoint string
 param cosmosDbEndpoint string
 param redisName string
+param openAiEndpoint string
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2022-09-01' existing = {
   name: storageAccountName
@@ -48,8 +49,12 @@ resource functionApp 'Microsoft.Web/sites@2022-03-01' = {
       linuxFxVersion: 'python|3.11'
       appSettings: [
         {
-          name: 'AzureWebJobsStorage'
-          value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
+          name: 'AzureWebJobsStorage__accountName'
+          value: storageAccount.name
+        }
+        {
+          name: 'AZURE_OPENAI_ENDPOINT'
+          value: openAiEndpoint
         }
         {
           name: 'FUNCTIONS_EXTENSION_VERSION'
