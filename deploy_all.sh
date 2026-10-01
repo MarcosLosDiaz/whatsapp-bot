@@ -29,12 +29,15 @@ rm -f deploy.zip
 zip -r deploy.zip . -x "venv/*" -x ".git/*" -x "infrastructure/*" -x "scratch/*" -x "__pycache__/*"
 
 echo "Publishing to Azure Function App..."
+# Get the dynamically generated function app name
+FUNC_NAME=$(az functionapp list -g "${PREFIX}-rg" --query "[0].name" -o tsv)
+
 az functionapp deployment source config-zip \
     --resource-group "${PREFIX}-rg" \
-    --name "${PREFIX}-func" \
+    --name "$FUNC_NAME" \
     --src deploy.zip
 
 echo "========================================="
 echo "Deployment Complete! Your webhook URL is:"
-echo "https://${PREFIX}-func.azurewebsites.net/api/webhook"
+echo "https://${FUNC_NAME}.azurewebsites.net/api/webhook"
 echo "========================================="

@@ -68,7 +68,7 @@ class Config:
         if not self.META_PHONE_ID: missing.append("META_PHONE_ID")
         if not self.OPENAI_API_KEY: missing.append("OPENAI_APIKEY")
         if not self.COSMOS_DB_URL: missing.append("COSMOS_DB_URL")
-        if not self.COSMOS_DB_KEY: missing.append("COSMOS_DB_KEY")
+        # COSMOS_DB_KEY is optional (falls back to Managed Identity)
         if not self.REDIS_URL and not self.REDIS_HOST: missing.append("REDIS_URL or REDIS_HOST")
         if not self.AZURE_WEBJOBS_STORAGE: missing.append("AzureWebJobsStorage")
 

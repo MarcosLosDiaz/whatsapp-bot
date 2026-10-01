@@ -61,6 +61,9 @@ module compute 'modules/compute.bicep' = {
     location: location
     resourcePrefix: resourcePrefix
     storageAccountName: storage.outputs.storageAccountName
+    appConfigEndpoint: appconfig.outputs.appConfigEndpoint
+    cosmosDbEndpoint: database.outputs.cosmosDbEndpoint
+    redisName: cache.outputs.redisName
   }
 }
 

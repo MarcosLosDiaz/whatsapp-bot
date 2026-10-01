@@ -2,9 +2,16 @@
 param location string
 param resourcePrefix string
 param storageAccountName string
+param appConfigEndpoint string
+param cosmosDbEndpoint string
+param redisName string
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2022-09-01' existing = {
   name: storageAccountName
+}
+
+resource redis 'Microsoft.Cache/redisEnterprise@2023-11-01' existing = {
+  name: redisName
 }
 
 resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
@@ -55,6 +62,18 @@ resource functionApp 'Microsoft.Web/sites@2022-03-01' = {
         {
           name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
           value: appInsights.properties.InstrumentationKey
+        }
+        {
+          name: 'AZURE_APPCONFIG_ENDPOINT'
+          value: appConfigEndpoint
+        }
+        {
+          name: 'COSMOS_DB_URL'
+          value: cosmosDbEndpoint
+        }
+        {
+          name: 'REDIS_URL'
+          value: 'rediss://default:${redis.listKeys().primaryKey}@${redis.properties.hostName}:10000'
         }
       ]
     }

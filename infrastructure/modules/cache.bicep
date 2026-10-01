@@ -1,19 +1,29 @@
-
 param location string
 param resourcePrefix string
 
-resource redisCache 'Microsoft.Cache/redis@2023-08-01' = {
+resource redisEnterprise 'Microsoft.Cache/redisEnterprise@2023-11-01' = {
   name: '${resourcePrefix}-redis'
   location: location
-  properties: {
-    sku: {
-      name: 'Basic'
-      family: 'C'
-      capacity: 0
-    }
-    enableNonSslPort: false
-    minimumTlsVersion: '1.2'
+  sku: {
+    name: 'Enterprise_E10'
+    capacity: 2
   }
 }
 
-output redisHostName string = redisCache.properties.hostName
+resource redisEnterpriseDatabase 'Microsoft.Cache/redisEnterprise/databases@2023-11-01' = {
+  parent: redisEnterprise
+  name: 'default'
+  properties: {
+    clientProtocol: 'Encrypted'
+    port: 10000
+    clusteringPolicy: 'EnterpriseCluster'
+    evictionPolicy: 'NoEviction'
+    modules: [
+      {
+        name: 'RediSearch'
+      }
+    ]
+  }
+}
+
+output redisName string = redisEnterprise.name

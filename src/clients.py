@@ -3,6 +3,7 @@ import aiohttp
 from azure.storage.queue.aio import QueueClient
 from azure.storage.queue import TextBase64EncodePolicy
 from azure.cosmos.aio import CosmosClient
+from azure.identity.aio import DefaultAzureCredential
 import redis.asyncio as redis
 from openai import AsyncOpenAI
 from src.config import config
@@ -62,7 +63,8 @@ async def get_cosmos_stickers_container():
     if COSMOS_STICKERS_CONTAINER is None:
         async with _cosmos_lock:
             if COSMOS_STICKERS_CONTAINER is None:
-                COSMOS_CLIENT = CosmosClient(config.COSMOS_DB_URL, credential=config.COSMOS_DB_KEY)
+                cred = config.COSMOS_DB_KEY if config.COSMOS_DB_KEY else DefaultAzureCredential()
+                COSMOS_CLIENT = CosmosClient(config.COSMOS_DB_URL, credential=cred)
                 db = COSMOS_CLIENT.get_database_client(config.COSMOS_DB_DATABASE)
                 COSMOS_STICKERS_CONTAINER = db.get_container_client("stickers")
                 COSMOS_USER_STICKERS_CONTAINER = db.get_container_client("user_stickers")
@@ -75,7 +77,8 @@ async def get_cosmos_user_stickers_container():
     if COSMOS_USER_STICKERS_CONTAINER is None:
         async with _cosmos_lock:
             if COSMOS_USER_STICKERS_CONTAINER is None:
-                COSMOS_CLIENT = CosmosClient(config.COSMOS_DB_URL, credential=config.COSMOS_DB_KEY)
+                cred = config.COSMOS_DB_KEY if config.COSMOS_DB_KEY else DefaultAzureCredential()
+                COSMOS_CLIENT = CosmosClient(config.COSMOS_DB_URL, credential=cred)
                 db = COSMOS_CLIENT.get_database_client(config.COSMOS_DB_DATABASE)
                 COSMOS_STICKERS_CONTAINER = db.get_container_client("stickers")
                 COSMOS_USER_STICKERS_CONTAINER = db.get_container_client("user_stickers")
