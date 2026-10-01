@@ -40,6 +40,35 @@ resource containerStickers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/c
         ]
         kind: 'Hash'
       }
+      vectorEmbeddingPolicy: {
+        embeddings: [
+          {
+            path: '/embedding'
+            dataType: 'float32'
+            dimensions: 1536
+            distanceFunction: 'cosine'
+          }
+        ]
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        vectorIndexes: [
+          {
+            path: '/embedding'
+            type: 'quantizedFlat'
+          }
+        ]
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+        excludedPaths: [
+          {
+            path: '/embedding/?'
+          }
+        ]
+      }
     }
   }
 }

@@ -7,7 +7,7 @@ DEPLOY_ENV = os.environ.get("DEPLOY_ENV", "local")
 
 # Telemetry: Jaeger (local) vs App Insights (azure)
 try:
-    if DEPLOY_ENV == "local":
+    if DEPLOY_ENV in ["local", "local_terminal"]:
         # Local: export traces to Jaeger via OTLP
         otel_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
         if otel_endpoint:

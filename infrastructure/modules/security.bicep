@@ -21,12 +21,12 @@ resource appConfig 'Microsoft.AppConfiguration/configurationStores@2023-03-01' e
   name: appConfigName
 }
 
-// Storage Blob Data Contributor
+// Storage Blob Data Owner
 resource blobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, functionAppPrincipalId, 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+  name: guid(storageAccount.id, functionAppPrincipalId, 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b')
   scope: storageAccount
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b')
     principalId: functionAppPrincipalId
     principalType: 'ServicePrincipal'
   }

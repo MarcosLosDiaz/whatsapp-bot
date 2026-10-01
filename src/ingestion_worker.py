@@ -112,9 +112,16 @@ async def process_sticker(payload_dict: dict):
                 
                 # Upload to Azure Blob Storage and store pointer in Cosmos DB
                 from azure.storage.blob.aio import BlobServiceClient
+                from azure.identity.aio import DefaultAzureCredential
                 import os
                 try:
-                    async with BlobServiceClient.from_connection_string(os.environ.get("AzureWebJobsStorage", "UseDevelopmentStorage=true")) as blob_service_client:
+                    if os.environ.get("AzureWebJobsStorage"):
+                        blob_service_client = BlobServiceClient.from_connection_string(os.environ.get("AzureWebJobsStorage"))
+                    else:
+                        account_url = f"https://{os.environ.get('AzureWebJobsStorage__accountName')}.blob.core.windows.net"
+                        blob_service_client = BlobServiceClient(account_url=account_url, credential=DefaultAzureCredential())
+                        
+                    async with blob_service_client:
                         container_client = blob_service_client.get_container_client("stickers")
                         try:
                             await container_client.create_container(public_access="blob")

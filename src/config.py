@@ -56,6 +56,7 @@ class Config:
         self.AZURE_WEBJOBS_STORAGE = store.get("AzureWebJobsStorage")
         self.AZURE_WEBJOBS_STORAGE_ACCOUNT = store.get("AzureWebJobsStorage__accountName")
         self.AZURE_OPENAI_ENDPOINT = store.get("AZURE_OPENAI_ENDPOINT")
+        self.BING_API_KEY = store.get("BING_API_KEY")
         
         self.PII_SALT = store.get("PII_SALT", "fallback_local_salt_12345")
 

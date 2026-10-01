@@ -81,6 +81,14 @@ resource functionApp 'Microsoft.Web/sites@2022-03-01' = {
           value: 'production'
         }
         {
+          name: 'ENABLE_ORYX_BUILD'
+          value: 'true'
+        }
+        {
+          name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
+          value: 'true'
+        }
+        {
           name: 'AZURE_APPCONFIG_ENDPOINT'
           value: appConfigEndpoint
         }
