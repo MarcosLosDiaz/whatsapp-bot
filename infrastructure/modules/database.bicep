@@ -7,16 +7,12 @@ resource cosmosDb 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' = {
   kind: 'GlobalDocumentDB'
   properties: {
     databaseAccountOfferType: 'Standard'
+    enableFreeTier: true
     locations: [
       {
         locationName: location
         failoverPriority: 0
         isZoneRedundant: false
-      }
-    ]
-    capabilities: [
-      {
-        name: 'EnableServerless'
       }
     ]
   }
@@ -65,3 +61,4 @@ resource containerUserStickers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabas
 }
 
 output cosmosDbAccountName string = cosmosDb.name
+output cosmosDbEndpoint string = cosmosDb.properties.documentEndpoint
