@@ -4,7 +4,7 @@ set -e
 # Prefix must be lowercase alphanumeric for Azure resources
 PREFIX="cadefigurinha"
 
-# 1. Provision Cloud Infrastructure (Cosmos, Redis, Function App, App Config)
+# 1. Provision Cloud Infrastructure (Cosmos DB, OpenAI, Storage, App Config)
 echo "Setting target subscription..."
 az account set --subscription "Azure subscription 1"
 
