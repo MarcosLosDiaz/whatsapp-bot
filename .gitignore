@@ -2,5 +2,14 @@ venv/
 __pycache__/
 .pytest_cache/
 scratch/
-__pycache__/
 *.pyc
+
+# Local secrets and runner script (strictly uncommitted)
+.env
+.env.*
+!.env.secrets.example
+*.secrets
+!*.secrets.example
+load_env.sh
+deploy.zip
+

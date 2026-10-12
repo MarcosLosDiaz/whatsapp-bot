@@ -49,10 +49,18 @@ else
     az appconfig kv set -n $APPCONFIG_NAME --key "META_VERIFY_TOKEN" --value "$META_VERIFY_TOKEN" --yes
 fi
 
+if [ -n "$PII_SALT" ]; then
+    az appconfig kv set -n $APPCONFIG_NAME --key "PII_SALT" --value "$PII_SALT" --yes
+fi
+
+if [ -n "$BING_API_KEY" ]; then
+    az appconfig kv set -n $APPCONFIG_NAME --key "BING_API_KEY" --value "$BING_API_KEY" --yes
+fi
+
 # 3. Zip and Deploy the Code
 echo "Zipping code..."
 rm -f deploy.zip
-zip -r deploy.zip . -x "venv/*" -x ".git/*" -x "infrastructure/*" -x "scratch/*" -x "__pycache__/*"
+zip -r deploy.zip . -x "venv/*" -x ".git/*" -x "infrastructure/*" -x "scratch/*" -x "__pycache__/*" -x ".env*" -x "*.secrets*" -x "load_env.sh" -x "local.settings.json" -x "*.sh"
 
 echo "Publishing to Azure Function App..."
 # Get the dynamically generated function app name
