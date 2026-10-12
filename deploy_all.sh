@@ -16,7 +16,7 @@ az deployment sub create \
     --name "${PREFIX}-deploy" \
     --location eastus \
     --template-file infrastructure/main.bicep \
-    --parameters resourcePrefix=$PREFIX location=eastus cosmosLocation=eastus2
+    --parameters resourcePrefix=$PREFIX location=eastus cosmosLocation=eastus2 functionLocation=centralus
 
 # 2. Securely push secrets directly from the host environment
 APPCONFIG_NAME="${PREFIX}-appconfig"

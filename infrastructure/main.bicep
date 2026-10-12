@@ -3,6 +3,7 @@ targetScope = 'subscription'
 
 param location string = 'eastus'
 param cosmosLocation string = 'eastus2'
+param functionLocation string = 'centralus'
 param resourcePrefix string = 'cadefigurinha'
 
 resource rg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
@@ -52,6 +53,7 @@ module compute 'modules/compute.bicep' = {
   name: 'computeDeploy'
   params: {
     location: location
+    functionLocation: functionLocation
     resourcePrefix: resourcePrefix
     storageAccountName: storage.outputs.storageAccountName
     appConfigEndpoint: appconfig.outputs.appConfigEndpoint

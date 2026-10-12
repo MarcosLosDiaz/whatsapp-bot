@@ -1,5 +1,6 @@
 
 param location string
+param functionLocation string = location
 param resourcePrefix string
 param storageAccountName string
 param appConfigEndpoint string
@@ -34,7 +35,7 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
 
 resource hostingPlan 'Microsoft.Web/serverfarms@2022-03-01' = {
   name: '${resourcePrefix}-plan'
-  location: location
+  location: functionLocation
   sku: {
     name: 'Y1'
     tier: 'Dynamic'
@@ -46,7 +47,7 @@ resource hostingPlan 'Microsoft.Web/serverfarms@2022-03-01' = {
 
 resource functionApp 'Microsoft.Web/sites@2022-03-01' = {
   name: '${resourcePrefix}-func-${uniqueString(resourceGroup().id)}'
-  location: location
+  location: functionLocation
   kind: 'functionapp,linux'
   identity: {
     type: 'SystemAssigned'
