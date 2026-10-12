@@ -1,7 +1,7 @@
 param location string
 param resourcePrefix string
 
-resource cosmosDb 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' = {
+resource cosmosDb 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' = {
   name: '${resourcePrefix}-cosmos'
   location: location
   kind: 'GlobalDocumentDB'
@@ -23,7 +23,7 @@ resource cosmosDb 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' = {
   }
 }
 
-resource database 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2023-04-15' = {
+resource database 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2024-11-15' = {
   parent: cosmosDb
   name: 'WhatsAppBot'
   properties: {
@@ -33,7 +33,7 @@ resource database 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2023-04-15
   }
 }
 
-resource containerStickers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+resource containerStickers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-11-15' = {
   parent: database
   name: 'stickers'
   properties: {
@@ -46,7 +46,7 @@ resource containerStickers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/c
         kind: 'Hash'
       }
       vectorEmbeddingPolicy: {
-        embeddings: [
+        vectorEmbeddings: [
           {
             path: '/embedding'
             dataType: 'float32'
@@ -78,7 +78,7 @@ resource containerStickers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/c
   }
 }
 
-resource containerUserStickers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+resource containerUserStickers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-11-15' = {
   parent: database
   name: 'user_stickers'
   properties: {
