@@ -12,4 +12,7 @@ scratch/
 !*.secrets.example
 load_env.sh
 deploy.zip
+bicep
+*.exe
+
 
