@@ -43,6 +43,12 @@ else
     az appconfig kv set -n $APPCONFIG_NAME --key "META_PHONE_ID" --value "$META_PHONE_ID" --yes
 fi
 
+if [ -z "$META_VERIFY_TOKEN" ]; then
+    echo "Warning: META_VERIFY_TOKEN not set (will default to 'default_verify_token'). You can set it via: az appconfig kv set -n $APPCONFIG_NAME --key META_VERIFY_TOKEN --value <token> --yes"
+else
+    az appconfig kv set -n $APPCONFIG_NAME --key "META_VERIFY_TOKEN" --value "$META_VERIFY_TOKEN" --yes
+fi
+
 # 3. Zip and Deploy the Code
 echo "Zipping code..."
 rm -f deploy.zip
