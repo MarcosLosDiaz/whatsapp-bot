@@ -13,9 +13,10 @@ az account set --subscription "Azure subscription 1"
 
 echo "Deploying Bicep Infrastructure..."
 az deployment sub create \
+    --name "${PREFIX}-deploy" \
     --location eastus \
     --template-file infrastructure/main.bicep \
-    --parameters resourcePrefix=$PREFIX
+    --parameters resourcePrefix=$PREFIX location=eastus cosmosLocation=eastus2
 
 # 2. Securely push secrets directly from the host environment
 APPCONFIG_NAME="${PREFIX}-appconfig"

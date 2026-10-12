@@ -2,7 +2,8 @@
 targetScope = 'subscription'
 
 param location string = 'eastus'
-param resourcePrefix string = 'wappbot'
+param cosmosLocation string = 'eastus2'
+param resourcePrefix string = 'cadefigurinha'
 
 resource rg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
   name: '${resourcePrefix}-rg'
@@ -31,7 +32,7 @@ module database 'modules/database.bicep' = {
   scope: rg
   name: 'databaseDeploy'
   params: {
-    location: location
+    location: cosmosLocation
     resourcePrefix: resourcePrefix
   }
 }
@@ -55,7 +56,7 @@ module compute 'modules/compute.bicep' = {
     storageAccountName: storage.outputs.storageAccountName
     appConfigEndpoint: appconfig.outputs.appConfigEndpoint
     cosmosDbEndpoint: database.outputs.cosmosDbEndpoint
-    openAiEndpoint: ai.outputs.openAiEndpoint
+    openAiEndpoint: ''
   }
 }
 
