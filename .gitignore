@@ -14,5 +14,6 @@ load_env.sh
 deploy.zip
 bicep
 *.exe
+.python_packages/
 
 
