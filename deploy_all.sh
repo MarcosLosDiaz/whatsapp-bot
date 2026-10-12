@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+cd "$PROJECT_ROOT"
+
 # Prefix must be lowercase alphanumeric for Azure resources
 PREFIX="cadefigurinha"
 
