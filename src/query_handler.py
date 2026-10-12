@@ -51,8 +51,7 @@ async def handle_query(payload_dict: dict):
         
         results = container.query_items(
             query=query,
-            parameters=parameters,
-            enable_cross_partition_query=True
+            parameters=parameters
         )
         
         async for item in results:
